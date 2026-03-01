@@ -4,12 +4,13 @@
 
 :root {
     /* Color Palette - Japanese Theme */
-    --lotus-color: hsl(350, 70%, 50%);
-    --lotus-light: hsl(350, 70%, 65%);
-    --crane-color: hsl(190, 70%, 50%);
-    --crane-light: hsl(190, 70%, 65%);
-    --ronin-color: hsl(45, 80%, 55%);
-    --ronin-light: hsl(45, 80%, 70%);
+    /* 莲花 = 蓝, 仙鹤 = 红, 浪人 = 紫 */
+    --lotus-color: hsl(210, 70%, 55%);
+    --lotus-light: hsl(210, 70%, 70%);
+    --crane-color: hsl(350, 70%, 55%);
+    --crane-light: hsl(350, 70%, 70%);
+    --ronin-color: hsl(270, 60%, 58%);
+    --ronin-light: hsl(270, 60%, 72%);
 
     /* Base Colors */
     --bg-dark: hsl(240, 20%, 8%);
@@ -179,7 +180,8 @@ body {
     font-weight: 500;
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="number"] {
     width: 100%;
     padding: 12px 16px;
     background: rgba(255, 255, 255, 0.08);
@@ -191,7 +193,8 @@ input[type="text"] {
     transition: all 0.3s ease;
 }
 
-input[type="text"]:focus {
+input[type="text"]:focus,
+input[type="number"]:focus {
     outline: none;
     border-color: var(--accent);
     background: rgba(255, 255, 255, 0.12);
@@ -902,4 +905,63 @@ input[type="text"]:focus {
     .avatar-grid {
         grid-template-columns: repeat(4, 1fr);
     }
+}
+
+/* ── Additional states ──────────────────────────────────────────────────── */
+
+.player-position.disconnected {
+    opacity: 0.35;
+}
+.player-position.disconnected .player-avatar {
+    filter: grayscale(100%) brightness(0.7);
+}
+
+.player-position.lotus .player-avatar { border-color: var(--lotus-color); }
+.player-position.crane .player-avatar { border-color: var(--crane-color); }
+.player-position.ronin .player-avatar { border-color: var(--ronin-color); }
+
+.revealed-badge {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: bold;
+    border: 2px solid rgba(255,255,255,0.8);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.card-number-badge {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    border-radius: 50%;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: bold;
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+.card-rank.special {
+    background: var(--ronin-color);
+    font-size: 1rem;
+}
+
+/* Prompt modal styling */
+#prompt-modal .modal-content {
+    border: 2px solid var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+}
 }

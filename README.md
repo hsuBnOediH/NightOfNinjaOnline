@@ -1,65 +1,203 @@
-# Night of Ninja Online
+# 🏮 Night of Ninja Online / 忍者之夜
 
-A social deduction card game where you must uncover your house, eliminate rivals, and survive the night.
+一款尔虞我诈的社交推理卡牌游戏的在线版本。找出敌对流派的成员并将他们干掉，同时保护自己流派中"等级最高"的成员存活到最后！
 
-## Overview
+---
 
-Players are secretly assigned to a House (Lotus, Crane, or Ronin).
-The game consists of rounds, each split into:
-1.  **Drafting Phase**: Pick cards to build your hand.
-2.  **Night Phase**: Play cards in rank order (1-5) to spy, trick, or kill.
-3.  **Scoring Phase**: Winning house members gain Honor tokens.
+## 🎯 核心目标
 
-**Goal**: Collect the most Honor tokens.
+玩家被秘密分为两个敌对的流派：**莲花（蓝）** 和 **仙鹤（红）**，有时还会有中立的 **浪人（紫）**。
 
-## Houses
+- 找出敌对流派的成员并将他们击杀
+- 保护自己流派中"等级最高"的成员存活到最后
+- **最先累计获得 10 分的玩家将获得最终胜利！**
 
--   **Lotus (Red)**: Allies with other Lotus. Wins if Lotus outnumbers Crane and survives.
--   **Crane (Blue)**: Allies with other Crane. Wins if Crane outnumbers Lotus and survives.
--   **Ronin (Yellow)**: Has no allies. Wins if alive at the end. Can also win via Mastermind.
+---
 
-## Card Types & Ranks
+## 📦 游戏组件
 
-Game execution happens in order of Rank (1 to 5). Lower ranks act first.
+| 组件 | 数量 | 说明 |
+|------|------|------|
+| 忍者卡片 | 33 张 | 分为各个阶段的行动卡 |
+| 流派卡片 | 11 张 | 确定你的身份和等级 |
+| 玩家立牌 | 11 个 | 带底座 |
+| 分数指示物 | 35 个 | 放入口袋盲抽（14×2分, 14×3分, 7×4分） |
+| 阶段指示牌 | 1 个 | 提示当前进行到哪个阶段 |
 
-### Rank 1: Spy (密探)
--   **Effect**: Look at another player's **House Card**.
--   **Restriction**: Cannot be used on a player whose House is already revealed.
+---
 
-### Rank 2: Mystic (隐士)
--   **Effect**: Look at another player's **House Card** AND one random or specific card from their **Hand**.
+## ⚙️ 游戏设置（常规 3 人以上局）
 
-### Rank 3: Trickster (3 Variants per game)
-The game includes 6 Trickster variants with unique effects:
-1.  **Shapeshifter (百变者)**: Swap the House Cards of two other players. (They won't know their new House immediately!).
-2.  **Graverobber (掘墓人)**: Draw a card from the discard pile.
-3.  **Troublemaker (捣蛋鬼)**: Look at a player's House and Reveal it to everyone.
-4.  **Soul Merchant (灵魂商贩)**: Look at a player's House/Honor and swap one Honor token with them.
-5.  **Judge (裁判)**: Reveal your own House, then Execute (Kill) another player. This kill cannot be blocked.
-6.  **Thief (窃贼)**: Reveal your own House, then Steal one Honor token from a player richer than you.
+1. **准备流派卡：** 根据玩家人数，拿出对应数量和等级的仙鹤与莲花卡。
+   - 例如：4 人游戏 → 仙鹤 1级、2级 + 莲花 1级、2级
+   - 奇数玩家（5人、7人等）→ 必须加入一张 **【浪人】** 卡
+2. **洗牌发放：** 将流派卡洗匀，面朝下秘密发给每位玩家一张。你可以随时查看自己的身份，但**绝对不能给别人看**。
+3. **准备分数：** 将 35 个分数指示物放进收纳袋中洗匀。
+4. **准备忍者卡：** 将 33 张忍者卡洗匀作为抽牌堆。
 
-### Rank 4: Blind Assassin (盲眼刺客)
--   **Effect**: Kill a target player.
--   **Counter**: If the target holds a **Mirror Monk**, the Assassin dies instead!
+---
 
-### Rank 5: Shinobi (上忍)
--   **Effect**: Look at a player's House Card, then choose whether to Kill them or do nothing.
--   **Note**: Acts last, offering powerful information + control.
+## 🔄 回合全流程（每回合 5 个阶段）
 
-### Special Cards (No Rank)
--   **Mirror Monk (还施僧)**: Passive. If targeted by a Blind Assassin, reflect the kill back.
--   **Martyr (殉道者)**: Passive. If you die, you gain extra Honor tokens if your House wins.
--   **Mastermind (首脑)**: Passive. If you are alive at the end of the round, your House automatically WINS the round, regardless of counts.
+### 第一阶段：回合开始
 
-## Game Flow
+确认大家都看好自己的身份（流派卡）。
 
-1.  **Draft**: Each player gets 3 cards, picks 1, passes the rest. Repeat until everyone has 3 cards.
-2.  **Night**:
-    -   The game announces the current Rank (e.g., "Rank 1 Phase").
-    -   Players holding that Rank's cards take turns.
-    -   **Skip**: You can choose to SKIP your turn. The card remains in your hand (bluffing potential).
-    -   **Privacy**: Only the active player knows it is their turn. Others just see the Phase.
-3.  **Scoring**:
-    -   Determine winning house (Mastermind > Ronin > Majority Count > Hierarchy Rank).
-    -   Winners gain 1 Honor. Survivors gain +1 Honor.
-4.  **End**: First to X Honor (or after Y rounds) wins.
+> ⚠️ 身份等级数字越小，级别越高：**1 级最高，5 级最低**。
+
+### 第二阶段：轮抽阶段（组建你的手牌）
+
+1. 每位玩家发 **3 张**忍者卡
+2. 查看你的 3 张卡，**选择保留 1 张**，将剩下的 2 张面朝下传给左边的玩家
+3. 从右边玩家那里接过 2 张卡，**选择保留 1 张**
+4. 最后剩下的 1 张面朝下丢弃到弃牌堆
+
+> 📌 轮抽结束后，每位玩家手中正好有 **2 张**忍者卡。
+
+### 第三阶段：夜晚阶段（行动与杀戮）
+
+这是游戏最核心的阶段。所有玩家可以自由地互相交流、吹牛、试探、撒谎，讨论时间由玩家自行决定！
+
+忍者卡**必须严格按照以下 5 个阶段的顺序打出：**
+
+| 顺序 | 阶段 | 英文 |
+|------|------|------|
+| 1 | 密探 | Spy |
+| 2 | 隐士 | Mystic |
+| 3 | 骗徒 | Trickster |
+| 4 | 盲眼刺客 | Blind Assassin |
+| 5 | 上忍 | Shinobi |
+
+#### 夜晚阶段结算规则（非常重要）
+
+- **按阶段呼叫：** 从"密探"阶段开始，依次询问"有人要打出密探吗？"
+- **是否出牌：** 手中有当前阶段的卡可以选择打出，也可以选择不出。但一旦过了这个阶段，手中的该阶段卡**本回合作废**。
+- **按数字优先级结算：** 多人同时打出同一阶段的卡时，按卡牌**左上角的数字**排序。数字越小，越先结算（如 1 号密探先行动，然后 2 号，再到 5 号）。
+- **死亡规则：**
+  - 被击杀后**不要翻开流派卡**，只需将玩家立牌横置表示死亡
+  - **死人不能出牌！**（如手持 3 号刺客，但在行动前被 1 号刺客杀死，该卡无法打出）
+  - **死人可以说话！** 仍然可以参与讨论，误导对手或给队友支招
+
+### 第四阶段：揭示阶段（结算胜负）
+
+如果在夜晚的腥风血雨后你还活着，请**翻开展示你的流派卡**！
+
+- **胜利判定：** 比较存活玩家的流派等级。拥有**最高等级**存活玩家的流派赢得本轮！（1 最大，其次 2、3...）
+- **平局判定：** 两派最高等级一样 → 比拼第二高的存活等级，以此类推。完全平局则所有存活玩家共享胜利。
+- **浪人判定：** 浪人只要存活到最后，就直接算作胜利者之一（浪人只为自己而战）。
+
+### 第五阶段：回合结束与计分
+
+- **发放奖励：** 获胜流派的**所有成员**（包括被杀死的队友）每人从袋子里盲抽 **1 个**分数指示物（分值保密）。存活的浪人也抽 1 个。
+- **检查胜利条件：** 有玩家总分达到 **10 分或以上** → 游戏结束，分数最高者获得最终胜利！
+- 不满 10 分 → 收回所有卡牌，重新洗牌，进入下一回合。
+
+---
+
+## 🎴 忍者卡牌全解析
+
+卡牌分为三大类：**情报类**（密探/隐士）、**特殊行动类**（骗徒）、**杀戮类**（刺客/上忍），以及**特殊被动卡**。
+
+### 1. 基础情报卡
+
+#### 密探 Spy（1-6 号）
+> 查看一名其他玩家的流派卡牌。
+
+最基础的查验身份手段，看清谁是敌是友。
+
+#### 隐士 Mystic（1-6 号）
+> 查看一名其他玩家的流派卡牌，和一张忍者卡牌。
+
+不仅能查身份，还能看透对方手里藏了什么牌，非常强力的信息卡。
+
+### 2. 杀戮行动卡
+
+#### 盲眼刺客 Blind Assassin（1-6 号）
+> 选择击杀一位玩家。
+
+闭眼杀人，不需要理由，指谁谁死。
+
+#### 上忍 Shinobi（1-6 号）
+> 查看一位玩家的流派卡牌，然后选择是否击杀该玩家。
+
+高级杀手！先看身份，确认是敌人再动手，避免误杀队友。
+
+### 3. 骗徒系列 Trickster（第 3 阶段打出，每张能力唯一）
+
+按左上角 1-6 顺序在夜晚第三阶段结算：
+
+| # | 名称 | 效果 |
+|---|------|------|
+| 1 | **百变者 Shapeshifter** | 查看两名玩家的流派卡，可选择互换他们的身份（被换者不能看新身份） |
+| 2 | **掘墓人 Graverobber** | 查看弃牌堆最上面两张忍者卡，拿走其中一张，可立即打出或留到后面阶段打出 |
+| 3 | **捣蛋鬼 Troublemaker** | 查看一名其他玩家的流派卡，可选择将其直接公开揭示 |
+| 4 | **灵魂商贩 Soul Merchant** | 查看一名玩家的流派卡或其分数指示物，可强行与其交换一个分数指示物 |
+| 5 | **窃贼 Thief** | 必须先揭示自己的流派卡，然后从分数比你多的玩家那里抢走一枚分数 |
+| 6 | **裁判 Judge** | 揭示自己的流派卡，直接击杀一名玩家。此击杀**无视**"殉道者"和"经施僧"的防御效果！ |
+
+### 4. 特殊忍者卡（被动卡，不在常规 5 阶段内主动打出）
+
+这三张卡只有在满足特定条件时才能发动：
+
+#### 殉道者 Martyr（! 标志）
+> **被动防御/得分卡。** 当被"上忍"或"盲眼刺客"击杀时可翻开此卡。你依然会死，但可以获得一枚分数指示物。
+
+#### 经施僧 Mirror Monk（! 标志）
+> **反杀神卡。** 当被"上忍"或"盲眼刺客"击杀时可翻开此卡。你成功存活，并且**反杀**试图杀你的玩家！
+
+#### 首脑 Mastermind（眼睛标志）
+> **胜利结算卡。** 夜晚无法使用。如果拿着此卡成功存活到"揭示阶段"，展示此卡，你的流派**直接无视等级比较，强行赢得本轮胜利**！如果你是浪人，则本轮流派直接流局，没有人获胜，只有你能拿分。
+
+---
+
+## ⚔️ 双人游戏特殊规则（硬核对弈模式）
+
+双人游戏变为更具策略性的"排兵布阵"：
+
+### 身份分配
+- 一人控制**仙鹤家族**（1、2、3 级卡）
+- 一人控制**莲花家族**（1、2、3 级卡）
+- 将 3 张卡面朝下摆在自己面前，代表控制的 3 个"独立玩家"
+
+### 轮抽发牌
+1. 每位领袖发 **5 张**忍者卡
+2. 选 1 张扣在面前 → 剩下 4 张传给对方
+3. 从对方的 4 张里选 2 张 → 剩下 2 张传回
+4. 从传回的 2 张里选 1 张 → 废弃最后 1 张
+5. 最终两人各持 **4 张**精心挑选的忍者卡
+
+### 游戏流程
+- 将 4 张忍者卡秘密分配给面前的 3 个"流派角色"（可给一个角色多张，也可不分）
+- 夜晚结算与正常游戏完全一致，每个流派卡视为独立个体
+- 如果某角色死了，其身上的忍者卡失效
+
+### 胜负
+活下来的角色中，拥有最高等级的那个"领袖"（玩家）获得 1 枚分数指示物。**先得 10 分者胜。**
+
+---
+
+## 💡 核心高阶玩法（忍者必修课）
+
+- **知识就是力量：** 前期打出密探和隐士非常关键。只有摸清了谁是大哥、谁是敌人，后面的刺客才能精准下刀。
+- **弃车保帅：** 游戏只有"流派胜利"。如果你是 4 级、5 级的小喽啰，终极任务就是帮 1 级、2 级大哥挡刀，甚至自杀式袭击换掉对面大哥——只要你的派别赢了，你死了也能拿分！
+- **真理与谎言同等强大：** 手里的牌不好？发挥演技！大喊"我是 1 号盲眼刺客，谁敢动我大哥我就杀谁！"，用嘴炮震慑对手。
+
+---
+
+## 🛠️ 技术栈
+
+- **后端：** Python / Flask + Socket.IO
+- **前端：** HTML / CSS / JavaScript
+- **实时通信：** WebSocket (Flask-SocketIO)
+
+## 🚀 快速开始
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动服务器
+python app.py
+```
+
+然后在浏览器中访问 `http://localhost:5000` 开始游戏。
