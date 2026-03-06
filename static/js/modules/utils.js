@@ -1,5 +1,7 @@
 // ── Utility helpers ──────────────────────────────────────────────────────────
 
+import { t } from './i18n.js';
+
 export function addLog(message) {
     const log = document.getElementById('game-log');
     if (!log) return;
@@ -36,7 +38,7 @@ export function showInfoModal(title, html) {
 }
 
 export function showConfirm(message, title, onOk, onCancel) {
-    document.getElementById('confirm-title').textContent = title || '确认';
+    document.getElementById('confirm-title').textContent = title || t('confirm');
     document.getElementById('confirm-message').textContent = message;
     document.getElementById('confirm-ok-btn').onclick = () => { hideModal('confirm-modal'); if (onOk) onOk(); };
     document.getElementById('confirm-cancel-btn').onclick = () => { hideModal('confirm-modal'); if (onCancel) onCancel(); };
@@ -44,7 +46,13 @@ export function showConfirm(message, title, onOk, onCancel) {
 }
 
 export function getRankName(rank) {
-    return { 1: '密探', 2: '隐士', 3: '骗徒', 4: '盲眼刺客', 5: '上忍' }[rank] || `阶段 ${rank}`;
+    return {
+        1: t('rank_1'),
+        2: t('rank_2'),
+        3: t('rank_3'),
+        4: t('rank_4'),
+        5: t('rank_5'),
+    }[rank] || t('rank_phase_fallback', rank);
 }
 
 export function toast(msg, duration = 3000) {

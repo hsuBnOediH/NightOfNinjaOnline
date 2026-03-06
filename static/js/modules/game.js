@@ -1,10 +1,11 @@
 // ── Game actions: drafting, playing cards, target selection ──────────────────
 
 import { gameState } from './state.js';
-import { CARD_INFO, HOUSE_INFO, getCardName } from './constants.js';
+import { CARD_INFO, HOUSE_INFO, getCardName, getHouseName } from './constants.js';
 import { emit } from './socket.js';
 import { showModal, hideModal, showInfoModal, showConfirm, addLog, toast } from './utils.js';
 import { createCardElement, updateDraftCollection, showPromptModal, hidePromptModal } from './ui.js';
+import { t } from './i18n.js';
 
 let _selectionQueue = [];
 
@@ -36,13 +37,13 @@ export function selectDraftCard(index, card, allCards) {
 
         const cname = getCardName(card);
         const actionMsg = round === 2
-            ? `弃掉 ${allCards.length - 1} 张`
-            : `传递 ${allCards.length - 1} 张给左边`;
-        addLog(`保留「${cname}」，${actionMsg}`);
+            ? t('draft_discard', allCards.length - 1)
+            : t('draft_pass', allCards.length - 1);
+        addLog(t('draft_kept', cname, actionMsg));
         updateDraftCollection();
 
         emit('select_draft_card', { room_code: gameState.roomCode, card_index: index });
-        title.textContent = '等待其他玩家…';
+        title.textContent = t('waiting_others');
     }, 300);
 }
 
@@ -77,8 +78,8 @@ function showTargetSelection(card, numTargets) {
 
     const cname = getCardName(card);
     title.textContent = numTargets === 2
-        ? `「${cname}」- 选择两名目标`
-        : `「${cname}」- 选择目标`;
+        ? t('target_two', cname)
+        : t('target_one', cname);
 
     container.innerHTML = '';
     _selectionQueue = [];
@@ -98,7 +99,8 @@ function showTargetSelection(card, numTargets) {
         let extra = '';
         if (info?.house) {
             const hi = HOUSE_INFO[info.house.house] || {};
-            extra = ` <span style="color:${hi.color};font-size:.85em;">[${hi.name} ${info.house.number||''}]</span>`;
+            const houseName = getHouseName(info.house.house);
+            extra = ` <span style="color:${hi.color};font-size:.85em;">[${houseName} ${info.house.number || ''}]</span>`;
         }
 
         el.innerHTML = `<img src="/static/img/avatar_${p.avatar}.png" style="width:40px;height:40px;border-radius:50%;"><span>${p.name}${extra}</span>`;
@@ -161,7 +163,7 @@ export function handlePrompt(promptData) {
 
 export function handleActionResult(data) {
     if (!data.success) {
-        toast(data.message || '行动失败');
+        toast(data.message || t('action_failed'));
         return;
     }
 
@@ -170,9 +172,10 @@ export function handleActionResult(data) {
     (data.effects || []).forEach(eff => {
         if (eff.type === 'reveal_house') {
             const hi = HOUSE_INFO[eff.house?.house] || {};
-            html += `<div style="margin-top:12px;padding:12px;border:2px solid ${hi.color||'#555'};border-radius:8px;text-align:center;background:rgba(0,0,0,.3);">`;
-            html += `<div style="font-size:.85em;color:var(--text-secondary);">揭示身份</div>`;
-            html += `<div style="font-size:1.2em;font-weight:bold;color:${hi.color||'#fff'};margin-top:4px;">${eff.target_name}: ${hi.name||'?'} ${eff.house?.number||''}</div>`;
+            const houseName = getHouseName(eff.house?.house);
+            html += `<div style="margin-top:12px;padding:12px;border:2px solid ${hi.color || '#555'};border-radius:8px;text-align:center;background:rgba(0,0,0,.3);">`;
+            html += `<div style="font-size:.85em;color:var(--text-secondary);">${t('reveal_identity')}</div>`;
+            html += `<div style="font-size:1.2em;font-weight:bold;color:${hi.color || '#fff'};margin-top:4px;">${eff.target_name}: ${houseName} ${eff.house?.number || ''}</div>`;
             html += `</div>`;
 
             // Store intelligence
@@ -182,23 +185,23 @@ export function handleActionResult(data) {
         } else if (eff.type === 'reveal_hand_card') {
             const cn = getCardName(eff.card);
             html += `<div style="margin-top:12px;padding:12px;border:1px solid #666;border-radius:8px;text-align:center;background:rgba(0,0,0,.3);">`;
-            html += `<div style="font-size:.85em;color:var(--text-secondary);">揭示手牌</div>`;
-            html += `<div style="font-size:1.1em;font-weight:bold;color:var(--accent);margin-top:4px;">${eff.target_name}: ${cn} #${eff.card?.number||'?'}</div>`;
+            html += `<div style="font-size:.85em;color:var(--text-secondary);">${t('reveal_hand_card')}</div>`;
+            html += `<div style="font-size:1.1em;font-weight:bold;color:var(--accent);margin-top:4px;">${eff.target_name}: ${cn} #${eff.card?.number || '?'}</div>`;
             html += `</div>`;
 
         } else if (eff.type === 'reveal_scores') {
             html += `<div style="margin-top:12px;padding:12px;border:1px solid #666;border-radius:8px;text-align:center;background:rgba(0,0,0,.3);">`;
-            html += `<div style="font-size:.85em;color:var(--text-secondary);">分数指示物</div>`;
-            html += `<div style="font-size:1.1em;margin-top:4px;">${eff.target_name}: [${(eff.scores||[]).join(', ')}] = ${eff.total} 分</div>`;
+            html += `<div style="font-size:.85em;color:var(--text-secondary);">${t('score_tokens_label')}</div>`;
+            html += `<div style="font-size:1.1em;margin-top:4px;">${eff.target_name}: [${(eff.scores || []).join(', ')}] = ${eff.total} pts</div>`;
             html += `</div>`;
 
         } else if (eff.type === 'card_gained') {
             const cn = getCardName(eff.card);
-            html += `<div style="margin-top:8px;color:var(--success);">获得卡牌: ${cn}</div>`;
+            html += `<div style="margin-top:8px;color:var(--success);">${t('card_gained', cn)}</div>`;
         }
     });
 
-    if (html.includes('揭示') || html.includes('获得') || data.effects?.length) {
-        showInfoModal('行动结果', html);
+    if (html.includes(t('reveal_identity')) || html.includes(t('card_gained', '')) || data.effects?.length) {
+        showInfoModal(t('action_result'), html);
     }
 }
