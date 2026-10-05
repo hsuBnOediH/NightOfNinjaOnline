@@ -41,7 +41,7 @@
 `render.yaml` 已定义：
 
 - Python：`3.11.0`
-- 构建：`pip install -r requirements.txt`
+- 构建：`python -m pip install --disable-pip-version-check -r requirements.txt`
 - 启动：`python -m gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT app:app`
 - 健康检查：`/healthz`
 - `SECRET_KEY`：由 Render 为服务单独生成
@@ -95,7 +95,7 @@ git log -1 --oneline
 平台需要支持 Python 3.11、持久在线进程、HTTPS 和 WebSocket。通用设置为：
 
 ```text
-Build command: pip install -r requirements.txt
+Build command: python -m pip install --disable-pip-version-check -r requirements.txt
 Start command: python -m gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT app:app
 Health check: /healthz
 Required secret: SECRET_KEY=<每个环境独立生成的长随机值>
@@ -116,7 +116,7 @@ Required secret: SECRET_KEY=<每个环境独立生成的长随机值>
 
 部署配置：
 - Python 3.11
-- 构建命令：pip install -r requirements.txt
+- 构建命令：python -m pip install --disable-pip-version-check -r requirements.txt
 - 启动命令：python -m gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT app:app
 - 健康检查：/healthz
 - 设置稳定且随机的 SECRET_KEY；PORT 由平台注入；生产环境不要启用 FLASK_DEBUG。
