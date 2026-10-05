@@ -130,6 +130,9 @@ class Player:
         self.played_cards: List[Card] = []
         self.alive = True
         self.connected = True
+        # Set once a disconnected player outlives the reconnect grace period.
+        # Only then does the server act for them (auto-pick, auto-pass, ...).
+        self.away = False
         self.disconnect_version = 0
         self.score_tokens: List[int] = []
         self.house_revealed = False

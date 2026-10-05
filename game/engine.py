@@ -133,9 +133,9 @@ class GameEngine:
             'index': card_index,
         }
 
-        # Auto-select for disconnected players
+        # Auto-select for players gone past the reconnect grace period
         for p in room.players:
-            if not p.connected and p.sid in hands and p.sid not in room.draft_state['selections']:
+            if p.away and p.sid in hands and p.sid not in room.draft_state['selections']:
                 room.draft_state['selections'][p.sid] = {
                     'card': hands[p.sid][0],
                     'index': 0,
@@ -223,13 +223,14 @@ class GameEngine:
 
     @staticmethod
     def _auto_commit_disconnected(room: GameRoom):
+        # Players inside the reconnect grace period keep their decision.
         for player in room.get_alive_players():
-            if not player.connected and player.sid not in room.phase_commitments:
+            if player.away and player.sid not in room.phase_commitments:
                 room.phase_commitments[player.sid] = []
 
     @staticmethod
     def phase_commit_progress(room: GameRoom) -> tuple[int, int]:
-        required = [p for p in room.get_alive_players() if p.connected]
+        required = [p for p in room.get_alive_players() if not p.away]
         committed = [p for p in required if p.sid in room.phase_commitments]
         return len(committed), len(required)
 
@@ -284,7 +285,7 @@ class GameEngine:
         while room.current_action_index < len(room.night_action_queue):
             action = room.night_action_queue[room.current_action_index]
             player = room.get_player_by_sid(action['sid'])
-            if player and player.alive and player.connected:
+            if player and player.alive and not player.away:
                 return action
             if player:
                 card = player.find_card_by_id(action['card'].id)

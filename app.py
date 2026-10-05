@@ -3,7 +3,7 @@ Night of Ninja Online – Flask + SocketIO Server
 """
 
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_socketio import SocketIO, disconnect, emit, join_room, leave_room
 import os
 import random
 import re
@@ -31,6 +31,11 @@ socketio = SocketIO(
 
 game_rooms: dict[str, GameRoom] = {}
 player_id_map: dict[str, tuple[str, str]] = {}   # player_id → (room_code, sid)
+
+# A refresh or brief network drop must not cost a player their draft pick,
+# night decision or kill reaction.  The server acts for a disconnected player
+# only after this many seconds.
+RECONNECT_GRACE_SECONDS = 20
 
 
 def _code() -> str:
@@ -82,6 +87,48 @@ def _cleanup_lobby_disconnect(code: str, player_id: str, version: int):
         }, room=code)
 
 
+def _await_reconnect_grace(code: str, player_id: str, version: int):
+    socketio.sleep(RECONNECT_GRACE_SECONDS)
+    _expire_reconnect_grace(code, player_id, version)
+
+
+def _expire_reconnect_grace(code: str, player_id: str, version: int):
+    """Mark a still-missing player away and act for them where play waits."""
+    # Runs from a background task.  The game helpers use flask_socketio.emit,
+    # which reads the namespace from the request as in a socket event handler.
+    with app.test_request_context('/'):
+        request.namespace = '/'
+        request.sid = None
+        _act_for_away_player(code, player_id, version)
+
+
+def _act_for_away_player(code: str, player_id: str, version: int):
+    room = game_rooms.get(code)
+    if not room:
+        return
+    player = room.get_player_by_id(player_id)
+    if not player or player.connected or player.disconnect_version != version:
+        return
+    player.away = True
+
+    if room.phase == GamePhase.DRAFTING:
+        hands = room.draft_state.get('hands', {})
+        selections = room.draft_state.get('selections', {})
+        if player.sid in hands and player.sid not in selections:
+            if GameEngine.process_draft_selection(room, player.sid, 0):
+                _broadcast_draft_advance(code)
+    elif room.phase == GamePhase.NIGHT:
+        if room.pending_prompt and room.pending_prompt.target_sid == player.sid:
+            result = GameEngine.auto_resolve_prompt(room)
+            if result:
+                _broadcast_prompt_result(code, result)
+                _process_night(code)
+        elif room.night_stage == 'committing':
+            _finalize_phase_if_ready(code)
+        elif room.night_stage == 'resolving':
+            _process_night(code)
+
+
 def _cleanup_abandoned_game(code: str):
     """Avoid retaining an abandoned in-memory game forever."""
     socketio.sleep(15 * 60)
@@ -123,8 +170,8 @@ def handle_disconnect():
         if not player:
             continue
 
-        # Keep the seat during a reconnect grace period.  In-progress seats are
-        # retained for the round and safely auto-pass.
+        # Keep the seat.  Lobby seats are released after 90 seconds; in a game
+        # the server acts for the player only after RECONNECT_GRACE_SECONDS.
         player.connected = False
         player.disconnect_version += 1
         emit('player_disconnected', {
@@ -140,26 +187,13 @@ def handle_disconnect():
                 player.player_id,
                 player.disconnect_version,
             )
-        elif room.phase == GamePhase.DRAFTING:
-            hands = room.draft_state.get('hands', {})
-            selections = room.draft_state.get('selections', {})
-            if sid in hands and sid not in selections:
-                all_done = GameEngine.process_draft_selection(room, sid, 0)
-                if all_done:
-                    _broadcast_draft_advance(code)
         else:
-            # Auto-resolve prompt if it was their turn
-            if room.pending_prompt and room.pending_prompt.target_sid == sid:
-                result = GameEngine.auto_resolve_prompt(room)
-                if result:
-                    _broadcast_prompt_result(code, result)
-                    _process_night(code)
-            elif room.night_stage == 'committing':
-                GameEngine._auto_commit_disconnected(room)
-                _finalize_phase_if_ready(code)
-            elif room.night_stage == 'resolving':
-                _process_night(code)
-
+            socketio.start_background_task(
+                _await_reconnect_grace,
+                code,
+                player.player_id,
+                player.disconnect_version,
+            )
             if room.players and not any(p.connected for p in room.players):
                 socketio.start_background_task(_cleanup_abandoned_game, code)
 
@@ -183,13 +217,16 @@ def handle_reconnect(data):
         emit('error', {'message': '玩家不存在'})
         return
 
-    if player.connected and player.sid != request.sid:
-        emit('error', {'message': '该玩家席位仍在线'})
-        return
-
+    # The player id is a bearer credential, so its holder owns the seat.  A
+    # refreshed tab can reconnect before the server has noticed the old socket
+    # close (behind a proxy that takes up to the ping timeout); take the seat
+    # over and close the superseded socket instead of rejecting the refresh.
     old_sid = player.sid
+    superseded_sid = (old_sid if player.connected and old_sid != request.sid
+                      else None)
     player.sid = request.sid
     player.connected = True
+    player.away = False
     player.disconnect_version += 1
     if room.host_sid == old_sid:
         room.host_sid = request.sid
@@ -298,6 +335,11 @@ def handle_reconnect(data):
                 'card_id': cur['card'].id,
                 'player_sid': request.sid,
             }, room=request.sid)
+
+    # The seat already points at the new sid, so the superseded socket's
+    # disconnect handler finds no player and changes no game state.
+    if superseded_sid:
+        disconnect(sid=superseded_sid)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -758,10 +800,12 @@ def _process_night(code: str):
     if room.pending_prompt:
         target_sid = room.pending_prompt.target_sid
         target = room.get_player_by_sid(target_sid)
-        if target and target.connected:
+        if target and not target.away:
+            # A target inside the reconnect grace period gets the prompt
+            # re-sent on reconnect; the grace timer resolves it otherwise.
             emit('prompt', room.pending_prompt.to_dict(), room=target_sid)
         else:
-            # Target disconnected – auto-resolve
+            # Target gone past the grace period – auto-resolve
             result = GameEngine.auto_resolve_prompt(room)
             if result:
                 _broadcast_prompt_result(code, result)

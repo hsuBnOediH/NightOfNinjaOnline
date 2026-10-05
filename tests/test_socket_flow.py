@@ -112,7 +112,9 @@ class SocketFlowTests(unittest.TestCase):
         self.assertEqual(player.sid, room.host_sid)
         self.assertEqual((code, player.sid), server.player_id_map[player_id])
 
-    def test_disconnect_during_draft_auto_selects_and_can_reconnect(self):
+    def test_refresh_before_old_socket_closes_takes_over_the_seat(self):
+        # Behind a proxy a refreshed tab's new socket can arrive before the
+        # server notices the old one closed.  The seat credential wins.
         self.clients[0].emit("create_room", {"name": "Host", "avatar": 1})
         code = next(iter(server.game_rooms))
         for index, client in enumerate(self.clients[1:], start=2):
@@ -123,30 +125,110 @@ class SocketFlowTests(unittest.TestCase):
             })
         self.clients[0].emit("start_game", {"room_code": code})
         room = server.game_rooms[code]
-
-        for client in self.clients[:3]:
-            client.emit("select_draft_card", {
-                "room_code": code,
-                "card_index": 0,
-            })
-
-        disconnected_player = room.players[3]
-        player_id = disconnected_player.player_id
-        old_sid = disconnected_player.sid
-        self.clients[3].disconnect()
-
-        self.assertEqual(2, room.draft_state["round"])
-        self.assertIn(old_sid, room.draft_state["hands"])
+        stale_client = self.clients[1]
+        player = room.players[1]
+        old_sid = player.sid
+        self.assertTrue(player.connected)
 
         replacement = server.socketio.test_client(
             server.app, flask_test_client=server.app.test_client()
         )
         self.clients.append(replacement)
-        replacement.emit("reconnect_player", {"player_id": player_id})
+        replacement.emit("reconnect_player", {"player_id": player.player_id})
 
-        self.assertTrue(disconnected_player.connected)
+        self.assertTrue(player.connected)
+        self.assertNotEqual(old_sid, player.sid)
+        self.assertEqual((code, player.sid), server.player_id_map[player.player_id])
+        # The superseded socket is closed and did not auto-pick a draft card.
+        self.assertFalse(stale_client.is_connected())
+        self.assertNotIn(player.sid, room.draft_state["selections"])
+        self.assertNotIn(old_sid, room.draft_state["selections"])
+
+    def _start_four_player_game(self):
+        self.clients[0].emit("create_room", {"name": "Host", "avatar": 1})
+        code = next(iter(server.game_rooms))
+        for index, client in enumerate(self.clients[1:], start=2):
+            client.emit("join_room", {
+                "room_code": code,
+                "name": f"P{index}",
+                "avatar": index,
+            })
+        self.clients[0].emit("start_game", {"room_code": code})
+        return code, server.game_rooms[code]
+
+    def _reconnect(self, player_id):
+        replacement = server.socketio.test_client(
+            server.app, flask_test_client=server.app.test_client()
+        )
+        self.clients.append(replacement)
+        replacement.emit("reconnect_player", {"player_id": player_id})
+        return replacement
+
+    def test_draft_pick_waits_for_a_reconnecting_player(self):
+        code, room = self._start_four_player_game()
+        for client in self.clients[:3]:
+            client.emit("select_draft_card", {"room_code": code, "card_index": 0})
+
+        player = room.players[3]
+        offered = [card.id for card in room.draft_state["hands"][player.sid]]
+        self.clients[3].disconnect()
+
+        # Inside the grace period nothing is chosen for the player.
+        self.assertEqual(1, room.draft_state["round"])
+        self.assertFalse(player.away)
+
+        replacement = self._reconnect(player.player_id)
+        self.assertTrue(player.connected)
+        self.assertEqual(
+            offered, [card.id for card in room.draft_state["hands"][player.sid]])
+
+        replacement.emit("select_draft_card", {"room_code": code, "card_index": 1})
+        self.assertEqual(2, room.draft_state["round"])
+        self.assertIn(offered[1], [card.id for card in player.hand])
+
+    def test_draft_auto_selects_after_grace_expires_and_can_reconnect(self):
+        code, room = self._start_four_player_game()
+        for client in self.clients[:3]:
+            client.emit("select_draft_card", {"room_code": code, "card_index": 0})
+
+        player = room.players[3]
+        old_sid = player.sid
+        self.clients[3].disconnect()
+        server._expire_reconnect_grace(
+            code, player.player_id, player.disconnect_version)
+
+        self.assertTrue(player.away)
+        self.assertEqual(2, room.draft_state["round"])
+        self.assertIn(old_sid, room.draft_state["hands"])
+
+        self._reconnect(player.player_id)
+        self.assertTrue(player.connected)
+        self.assertFalse(player.away)
         self.assertNotIn(old_sid, room.draft_state["hands"])
-        self.assertIn(disconnected_player.sid, room.draft_state["hands"])
+        self.assertIn(player.sid, room.draft_state["hands"])
+
+    def test_night_commit_waits_for_grace_then_auto_passes(self):
+        code, room = self._start_four_player_game()
+        for _round in (1, 2):
+            for client in self.clients:
+                client.emit("select_draft_card", {"room_code": code, "card_index": 0})
+        self.assertEqual(GamePhase.NIGHT, room.phase)
+        self.assertEqual("committing", room.night_stage)
+        rank = room.current_rank
+
+        player = room.players[3]
+        self.clients[3].disconnect()
+        for client in self.clients[:3]:
+            client.emit("commit_phase", {"room_code": code, "card_ids": []})
+
+        # Still waiting on the disconnected player's secret decision.
+        self.assertEqual(rank, room.current_rank)
+        self.assertNotIn(player.sid, room.phase_commitments)
+
+        server._expire_reconnect_grace(
+            code, player.player_id, player.disconnect_version)
+        self.assertTrue(player.away)
+        self.assertNotEqual(rank, room.current_rank)
 
     def test_reconnect_updates_attacker_reference_in_someone_elses_prompt(self):
         self.clients[0].emit("create_room", {"name": "Host", "avatar": 1})
