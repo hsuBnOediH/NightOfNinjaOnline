@@ -1029,7 +1029,8 @@ input[type="number"]:focus {
     position: fixed;
     top: 16px;
     right: 16px;
-    z-index: 9998;
+    /* Above the tutorial overlay so first-time visitors can switch language. */
+    z-index: 10000;
 }
 
 .lang-toggle-btn {

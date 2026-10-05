@@ -452,6 +452,7 @@ export function setLanguage(lang) {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
     document.title = t('page_title');
     _applyDataI18n();
+    window.dispatchEvent(new CustomEvent('ninja:languagechange', { detail: lang }));
 }
 
 /** Apply translations to all elements with data-i18n attributes */
@@ -466,10 +467,16 @@ function _applyDataI18n() {
     });
 }
 
+/** First visit: follow the browser's preferred language (Chinese or English). */
+function _browserLang() {
+    const prefs = navigator.languages?.length ? navigator.languages : [navigator.language || ''];
+    return prefs.some(l => /^zh\b/i.test(l)) ? 'zh' : 'en';
+}
+
 /** Initialize i18n – call once on DOMContentLoaded */
 export function initI18n() {
     const saved = localStorage.getItem('ninja_lang');
-    currentLang = saved && translations[saved] ? saved : 'zh';
+    currentLang = saved && translations[saved] ? saved : _browserLang();
     document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
     document.title = t('page_title');
     _applyDataI18n();

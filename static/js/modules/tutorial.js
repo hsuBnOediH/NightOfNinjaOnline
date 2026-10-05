@@ -277,6 +277,7 @@ function renderStep() {
     const prevBtn = overlay.querySelector('.tutorial-prev');
     const nextBtn = overlay.querySelector('.tutorial-next');
     prevBtn.style.visibility = currentStep === 0 ? 'hidden' : 'visible';
+    prevBtn.textContent = getLang() === 'zh' ? '← 上一步' : '← Back';
     nextBtn.textContent = currentStep === total - 1 ? (getLang() === 'zh' ? '开始游戏！' : 'Let\'s Play!') : (getLang() === 'zh' ? '下一步 →' : 'Next →');
 
     // Counter
@@ -337,6 +338,10 @@ export function closeTutorial() {
 }
 
 export function initTutorial() {
+    // The language switcher stays usable above the overlay; re-render in place.
+    window.addEventListener('ninja:languagechange', () => {
+        if (overlay && overlay.classList.contains('active')) renderStep();
+    });
     // Auto-open on first visit
     if (!localStorage.getItem(TUTORIAL_SEEN_KEY)) {
         setTimeout(() => openTutorial(), 800);
