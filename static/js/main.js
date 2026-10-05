@@ -329,6 +329,24 @@ function onReconnected(d) {
     showScreen('game-screen');
     applyHouseDisplay(d.your_house);
     updatePlayerBoard(d.room.players);
+    gameState.roundNumber = d.room.round_number;
+    $('round-number').textContent = d.room.round_number;
+    if (d.room.phase === 'drafting') {
+        // Kept draft picks live in the server-side hand; draft_started /
+        // draft_continued follow this event and restore the indicator.
+        gameState.draftedCards = [...gameState.myHand];
+        $('draft-collection-panel').style.display = 'block';
+        updateDraftCollection();
+    } else if (d.room.phase === 'night') {
+        gameState.currentRank = d.room.current_rank;
+        $('draft-collection-panel').style.display = 'none';
+        const rn = getRankName(d.room.current_rank);
+        $('phase-indicator').textContent = t('night_phase', rn);
+        updateStageGuidance(t('night_phase', rn), t('waiting_action'));
+    } else if (d.room.phase === 'scoring' || d.room.phase === 'game_over') {
+        $('draft-collection-panel').style.display = 'none';
+        $('phase-indicator').textContent = t('round_scoring');
+    }
     renderHand(gameState.myHand);
     toast(t('reconnect_success'));
 }
