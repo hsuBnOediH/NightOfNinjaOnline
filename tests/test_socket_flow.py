@@ -230,6 +230,24 @@ class SocketFlowTests(unittest.TestCase):
         self.assertTrue(player.away)
         self.assertNotEqual(rank, room.current_rank)
 
+    def test_night_does_not_stall_when_nobody_is_left_to_commit(self):
+        # Everyone can die before a later rank (e.g. Blind Assassins plus a
+        # Mirror Monk).  Nobody is left to commit, so the night must move on.
+        code, room = self._start_four_player_game()
+        for _round in (1, 2):
+            for client in self.clients:
+                client.emit("select_draft_card", {"room_code": code, "card_index": 0})
+        self.assertEqual(GamePhase.NIGHT, room.phase)
+
+        for player in room.players:
+            player.alive = False
+        with server.app.test_request_context("/"):
+            server.request.namespace = "/"
+            server.request.sid = None
+            server._begin_phase_commit(code)
+
+        self.assertNotEqual(GamePhase.NIGHT, room.phase)
+
     def test_reconnect_updates_attacker_reference_in_someone_elses_prompt(self):
         self.clients[0].emit("create_room", {"name": "Host", "avatar": 1})
         code = next(iter(server.game_rooms))

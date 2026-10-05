@@ -772,6 +772,9 @@ def _begin_phase_commit(code: str):
             'eligible_cards': [card.to_dict() for card in
                                GameEngine.eligible_phase_cards(room, player)],
         }, room=player.sid)
+    # Nobody may be left to commit (everyone dead, or every living player
+    # away); no commit event would ever arrive, so resolve right away.
+    _finalize_phase_if_ready(code)
 
 
 def _finalize_phase_if_ready(code: str):
