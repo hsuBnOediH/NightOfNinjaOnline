@@ -264,7 +264,10 @@ export function showPromptModal(promptData, onResponse) {
         if (card) {
             const row = document.createElement('div');
             row.style.cssText = 'display:flex;justify-content:center;margin:12px 0;';
-            row.appendChild(createCardElement(card, true));
+            // Preview only: the choice is made with the buttons below.
+            const preview = createCardElement(card, true);
+            preview.style.pointerEvents = 'none';
+            row.appendChild(preview);
             body.appendChild(row);
         }
         const note = document.createElement('p');
