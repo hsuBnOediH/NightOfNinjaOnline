@@ -6,8 +6,10 @@
 
 - 历史部署平台确认是 **Render**。依据是 Git 历史中的三次 Render 修复提交，以及仓库根目录的 `render.yaml`。
 - 历史配置的服务名是 `night-of-ninja-online`。
-- 实际在线的 Render 服务地址是 `https://nightofninjaonline.onrender.com`（`render.yaml` 中的服务名与它不同；`night-of-ninja-online.onrender.com` 返回 404）。
-- 截至 2026-10-05，该服务运行的是旧提交 `e2b312a`（没有 `/healthz`）。新版部署并验收后，以 README 中写明的网址为准。
+- 正式网址：<https://ninja.bigeyechink.com>（Render 自定义域名；Cloud DNS 中 `ninja.bigeyechink.com` 为指向 `nightofninjaonline.onrender.com` 的 CNAME）。
+- Render 服务名是 `NightOfNinjaOnline`（`srv-d6lhi5ea2pns73ar7drg`，Oregon，免费实例），`main` 分支每次提交自动部署。该服务是在控制台手动创建的，不读取 `render.yaml`；`render.yaml` 中的服务名 `night-of-ninja-online` 与之不同，仅作为配置记录。
+- 2026-10-05 起运行新版，验收结果见 README。
+- 注意：控制台里修改 Build Command 后若构建日志仍显示旧命令，说明设置没有真正写入；改成一个不同的等价命令再保存即可强制生效（本次遇到过）。
 
 ## 在 Render 里到哪里看
 

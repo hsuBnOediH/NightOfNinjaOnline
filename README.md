@@ -208,7 +208,11 @@ python3.11 app.py
 
 ## 🌐 在线部署
 
-这个项目历史上使用 **Render** 部署，仓库根目录的 [`render.yaml`](render.yaml) 是可复用的部署配置。正式网址会在新版部署并验收通过后写在这里。
+**在线游玩：<https://ninja.bigeyechink.com>**
+
+2026-10-05 验收通过：首页与 HTTPS、`/healthz`、四个独立浏览器完整打完一轮（建房、加入、两轮轮抽、夜晚五个阶段、计分），轮抽和夜晚中途刷新、断网重连均保留状态，实时通信走 WebSocket。
+
+服务部署在 Render（Web Service `NightOfNinjaOnline`，`main` 分支每次提交自动部署），域名 `ninja.bigeyechink.com` 通过 CNAME 指向 Render，证书由 Render 自动签发和续期。仓库根目录的 [`render.yaml`](render.yaml) 记录了同样的构建、启动和环境变量配置。
 
 部署参数、环境变量、重新部署步骤以及可交给其他人的部署 prompt，见 [`docs/DEPLOYMENT.zh-CN.md`](docs/DEPLOYMENT.zh-CN.md)。
 
