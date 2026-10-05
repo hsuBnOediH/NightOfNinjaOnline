@@ -10,7 +10,7 @@ import {
 } from './modules/ui.js';
 import {
     addLog, updateStageGuidance, getRankName,
-    showModal, hideModal, showInfoModal, showConfirm, toast,
+    showModal, hideModal, showInfoModal, showConfirm, toast, escapeHtml,
 } from './modules/utils.js';
 import { selectDraftCard, playCard, handlePrompt, handleActionResult } from './modules/game.js';
 import { t, initI18n, getLang } from './modules/i18n.js';
@@ -90,7 +90,12 @@ function initSocket() {
         draft_started: onDraftStarted,
         draft_continued: onDraftContinued,
         night_started: onNightStarted,
+        phase_selection: onPhaseSelection,
+        phase_committed: onPhaseCommitted,
+        phase_progress: onPhaseProgress,
+        phase_revealed: onPhaseRevealed,
         your_hand: onYourHand,
+        private_state: onPrivateState,
         action_turn: onActionTurn,
         rank_changed: onRankChanged,
         turn_notification: onTurnNotification,
@@ -135,7 +140,13 @@ function setupUI() {
     $('display-room-code').addEventListener('click', copyRoomCode);
 
     // Leave / Start
-    $('leave-room-btn').addEventListener('click', () => location.reload());
+    $('leave-room-btn').addEventListener('click', () => {
+        // Refreshing is a temporary disconnect; this button is an explicit exit.
+        emit('leave_room', { room_code: gameState.roomCode });
+        sessionStorage.removeItem('player_id');
+        sessionStorage.removeItem('room_code');
+        setTimeout(() => location.reload(), 150);
+    });
     $('start-game-btn').addEventListener('click', () => {
         emit('start_game', { room_code: gameState.roomCode });
     });
@@ -243,20 +254,31 @@ function onPlayerLeft(d) {
 function onPlayerDisconnected(d) {
     toast(t('player_disconnected', d.name));
     addLog(t('player_disconnected_short', d.name));
-    if (d.room) updatePlayerBoard(d.room.players);
+    if (!d.room) return;
+    gameState.phase = d.room.phase;
+    if (d.room.phase === 'lobby') updatePlayerList(d.room.players);
+    else updatePlayerBoard(d.room.players);
 }
 
 function onPlayerReconnected(d) {
     toast(t('player_reconnected', d.player.name));
     addLog(t('player_reconnected_short', d.player.name));
-    if (d.room) updatePlayerBoard(d.room.players);
+    if (!d.room) return;
+    if (d.old_sid && d.old_sid !== d.player.sid && gameState.revealedInfo[d.old_sid]) {
+        gameState.revealedInfo[d.player.sid] = gameState.revealedInfo[d.old_sid];
+        delete gameState.revealedInfo[d.old_sid];
+    }
+    gameState.phase = d.room.phase;
+    if (d.room.phase === 'lobby') updatePlayerList(d.room.players);
+    else updatePlayerBoard(d.room.players);
 }
 
 function onRoomUpdated(d) {
     if (!d.room) return;
+    gameState.isHost = d.room.host_sid === gameState.mySid;
     gameState.winningThreshold = d.room.winning_threshold;
     const thr = $('winning-threshold');
-    if (thr && !gameState.isHost) thr.value = d.room.winning_threshold;
+    if (thr) thr.value = d.room.winning_threshold;
     const disp = $('win-threshold-display');
     if (disp) disp.textContent = d.room.winning_threshold;
 }
@@ -274,6 +296,35 @@ function onReconnected(d) {
     gameState.myHand = d.your_hand || [];
     gameState.phase = d.room.phase;
     gameState.players = d.room.players;
+    gameState.isHost = d.room.host_sid === gameState.mySid;
+    gameState.nightStage = d.room.night_stage || 'idle';
+    gameState.revealedInfo = Object.fromEntries(
+        Object.entries(d.known_houses || {}).map(([sid, house]) => [sid, { house }]),
+    );
+    Object.entries(d.known_scores || {}).forEach(([sid, scores]) => {
+        if (!gameState.revealedInfo[sid]) gameState.revealedInfo[sid] = {};
+        gameState.revealedInfo[sid].scores = scores;
+    });
+    const me = (d.room.players || []).find(player => player.sid === gameState.mySid);
+    gameState.myScoreTokens = me?.score_tokens || [];
+    gameState.myTotalScore = me?.total_score || 0;
+    updateOwnScoreDisplay();
+    (d.room.players || []).forEach(player => {
+        if (player.house_revealed && player.house) {
+            gameState.revealedInfo[player.sid] = { house: player.house };
+        }
+    });
+
+    onRoomUpdated(d);
+    $('display-room-code').textContent = d.room_code;
+
+    if (d.room.phase === 'lobby') {
+        $('start-game-btn').style.display = gameState.isHost ? 'block' : 'none';
+        updatePlayerList(d.room.players);
+        showScreen('waiting-screen');
+        toast(t('reconnect_success'));
+        return;
+    }
 
     showScreen('game-screen');
     applyHouseDisplay(d.your_house);
@@ -357,6 +408,7 @@ function onNightStarted(d) {
     gameState.phase = 'night';
     gameState.currentRank = d.current_rank;
     gameState.roundNumber = d.round;
+    gameState.nightStage = 'committing';
     $('draft-collection-panel').style.display = 'none';
     $('round-number').textContent = d.round;
     const rn = getRankName(d.current_rank);
@@ -369,19 +421,68 @@ function onNightStarted(d) {
 function onYourHand(d) {
     gameState.myHand = d.cards;
     renderHand(d.cards);
-    // Update score display
-    const me = (gameState.players || []).find(p => p.sid === gameState.mySid);
-    if (me) {
-        const st = $('my-score-total');
-        const sc = $('my-score-count');
-        if (st) st.textContent = me.total_score ?? gameState.myTotalScore;
-        if (sc) sc.textContent = me.score_count ?? 0;
+    updateOwnScoreDisplay();
+}
+
+function onPrivateState(d) {
+    gameState.myHand = d.cards || [];
+    gameState.myScoreTokens = d.score_tokens || [];
+    gameState.myTotalScore = d.total_score || 0;
+    renderHand(gameState.myHand);
+    updateOwnScoreDisplay();
+}
+
+function updateOwnScoreDisplay() {
+    const st = $('my-honor-total');
+    const sc = $('my-honor-count');
+    if (st) st.textContent = gameState.myTotalScore;
+    if (sc) sc.textContent = gameState.myScoreTokens.length;
+}
+
+function onPhaseSelection(d) {
+    gameState.currentRank = d.rank;
+    gameState.nightStage = 'committing';
+    gameState.currentAction = null;
+    gameState.eligiblePhaseCards = d.eligible_cards || [];
+    gameState.selectedPhaseCardIds = [];
+    gameState.phaseCommitted = false;
+    renderHand(gameState.myHand);
+}
+
+function onPhaseCommitted() {
+    gameState.phaseCommitted = true;
+    renderHand(gameState.myHand);
+    $('hand-title').textContent = t('choice_locked_waiting');
+}
+
+function onPhaseProgress(d) {
+    updateStageGuidance(
+        t('night_phase', getRankName(d.rank)),
+        t('phase_progress', d.committed, d.required),
+    );
+}
+
+function onPhaseRevealed(d) {
+    gameState.nightStage = 'resolving';
+    gameState.phaseCommitted = true;
+    const plays = d.plays || [];
+    if (!plays.length) {
+        addLog(t('no_cards_this_phase'));
+    } else {
+        plays.forEach(play => addLog(t(
+            'phase_card_revealed',
+            play.player_name,
+            getCardName(play.card),
+            play.card.number || '?',
+        )));
     }
+    renderHand(gameState.myHand);
 }
 
 function onActionTurn(d) {
     gameState.currentRank = d.rank;
     gameState.currentAction = d;
+    gameState.nightStage = 'resolving';
     renderHand(gameState.myHand);
 
     const title = $('hand-title');
@@ -393,15 +494,9 @@ function onActionTurn(d) {
     }
 
     if (d.player_sid === gameState.mySid) {
-        title.innerHTML = `${t('your_turn')}<button id="skip-btn" class="btn btn-secondary" style="margin-left:12px;padding:4px 14px;font-size:.8em;">${t('skip')}</button>`;
+        title.textContent = t('resolve_committed_card');
         title.style.color = 'var(--success)';
         toast(t('your_turn'), 2000);
-
-        $('skip-btn').onclick = () => {
-            showConfirm(t('confirm_skip'), t('skip_turn'), () => {
-                emit('skip_turn', { room_code: gameState.roomCode });
-            });
-        };
     } else {
         title.textContent = t('waiting_others_action');
         title.style.color = 'var(--text-secondary)';
@@ -410,6 +505,8 @@ function onActionTurn(d) {
 
 function onRankChanged(d) {
     gameState.currentRank = d.current_rank;
+    gameState.nightStage = d.night_stage || 'committing';
+    gameState.currentAction = null;
     const rn = getRankName(d.current_rank);
     $('phase-indicator').textContent = t('night_phase', rn);
     updateStageGuidance(t('night_phase', rn), t('waiting_action'));
@@ -418,6 +515,7 @@ function onRankChanged(d) {
 }
 
 function onTurnNotification(d) {
+    gameState.currentAction = null;
     $('hand-title').textContent = d.message;
     $('hand-title').style.color = 'var(--text-secondary)';
 }
@@ -439,6 +537,12 @@ function onCardPlayed(d) {
             gameState.revealedInfo[eff.target_sid].house = eff.house;
             const p = (gameState.players || []).find(x => x.sid === eff.target_sid);
             if (p) { p.house_revealed = true; p.house = eff.house; }
+        }
+        if (eff.type === 'swap_identity') {
+            if (eff.actor_sid !== gameState.mySid) {
+                delete gameState.revealedInfo[eff.t1];
+                delete gameState.revealedInfo[eff.t2];
+            }
         }
     });
     if (d.room) updatePlayerBoard(d.room.players);
@@ -468,6 +572,12 @@ function onPromptResolved(d) {
             if (!gameState.revealedInfo[eff.target_sid]) gameState.revealedInfo[eff.target_sid] = {};
             gameState.revealedInfo[eff.target_sid].house = eff.house;
         }
+        if (eff.type === 'swap_identity') {
+            if (eff.actor_sid !== gameState.mySid) {
+                delete gameState.revealedInfo[eff.t1];
+                delete gameState.revealedInfo[eff.t2];
+            }
+        }
     });
     if (d.room) updatePlayerBoard(d.room.players);
 }
@@ -478,8 +588,8 @@ function onRoundComplete(d) {
     gameState.phase = 'scoring';
     gameState.myScoreTokens = d.your_score_tokens || [];
     gameState.myTotalScore = d.your_total || 0;
-    const st = $('my-score-total');
-    const sc = $('my-score-count');
+    const st = $('my-honor-total');
+    const sc = $('my-honor-count');
     if (st) st.textContent = gameState.myTotalScore;
     if (sc) sc.textContent = gameState.myScoreTokens.length;
     updateStageGuidance(t('round_scoring'), t('view_results'));
@@ -500,14 +610,16 @@ function onNewRound(d) {
 
 function onGameOver(d) {
     gameState.phase = 'game_over';
-    let html = `<div style="text-align:center;font-size:1.5em;margin-bottom:20px;">${t('winner_announce', d.winner_name, d.winner_score)}</div>`;
+    const winners = d.winners?.length ? d.winners : [{ name: d.winner_name, score: d.winner_score }];
+    const winnerNames = winners.map(w => escapeHtml(w.name)).join('、');
+    let html = `<div style="text-align:center;font-size:1.5em;margin-bottom:20px;">${t('winner_announce', winnerNames, winners[0]?.score ?? 0)}</div>`;
     html += '<table style="width:100%;border-collapse:collapse;">';
     html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.1);"><th style="text-align:left;padding:6px;">#</th><th style="text-align:left;">${t('player_col_short')}</th><th>${t('total_score_short')}</th></tr>`;
     (d.scores || []).forEach((s, i) => {
         const isMe = s.sid === gameState.mySid;
         html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);${isMe ? 'background:rgba(255,255,255,0.05);' : ''}">`;
         html += `<td style="padding:6px;">${i + 1}</td>`;
-        html += `<td>${s.name}</td>`;
+        html += `<td>${escapeHtml(s.name)}</td>`;
         html += `<td style="text-align:center;font-weight:bold;">${s.total_score}</td>`;
         html += '</tr>';
     });
@@ -535,6 +647,52 @@ function renderHand(cards) {
     }
 
     hand.innerHTML = '';
+
+    if (gameState.nightStage === 'committing') {
+        const eligibleIds = new Set((gameState.eligiblePhaseCards || []).map(c => c.id));
+        cards.forEach(c => {
+            const canSelect = eligibleIds.has(c.id) && !gameState.phaseCommitted;
+            const el = createCardElement(c, canSelect);
+            if (gameState.selectedPhaseCardIds.includes(c.id)) {
+                el.classList.add('selected-for-phase');
+                el.style.boxShadow = '0 0 20px var(--accent)';
+                el.style.border = '3px solid var(--accent)';
+            }
+            if (canSelect) {
+                el.onclick = () => {
+                    const selected = gameState.selectedPhaseCardIds;
+                    gameState.selectedPhaseCardIds = selected.includes(c.id)
+                        ? selected.filter(id => id !== c.id)
+                        : [...selected, c.id];
+                    renderHand(cards);
+                };
+            }
+            hand.appendChild(el);
+        });
+
+        if (gameState.phaseCommitted) {
+            title.textContent = t('choice_locked_waiting');
+            return;
+        }
+        const count = gameState.selectedPhaseCardIds.length;
+        title.innerHTML = '';
+        const label = document.createElement('span');
+        label.textContent = count ? t('selected_card_count', count) : t('choose_or_pass');
+        const lock = document.createElement('button');
+        lock.className = count ? 'btn btn-primary phase-lock-btn' : 'btn btn-secondary phase-lock-btn';
+        lock.textContent = count ? t('lock_selected_cards') : t('pass_phase');
+        lock.onclick = () => {
+            lock.disabled = true;
+            emit('commit_phase', {
+                room_code: gameState.roomCode,
+                card_ids: [...gameState.selectedPhaseCardIds],
+            });
+        };
+        title.appendChild(label);
+        title.appendChild(lock);
+        return;
+    }
+
     const act = gameState.currentAction;
     const isMyTurn = act && act.player_sid === gameState.mySid;
 

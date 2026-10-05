@@ -6,6 +6,7 @@ Cards, players, rooms and game state
 from enum import Enum
 from typing import List, Optional, Dict, Any
 import random
+import secrets
 import uuid
 
 
@@ -23,7 +24,7 @@ class CardType(Enum):
     TRICKSTER = "trickster"        # 骗徒 (Rank 3)
     ASSASSIN = "assassin"          # 盲眼刺客 (Rank 4)
     SHINOBI = "shinobi"            # 上忍 (Rank 5)
-    MIRROR_MONK = "mirror_monk"    # 经施僧 (被动反杀)
+    MIRROR_MONK = "mirror_monk"    # 还施僧 (被动反杀)
     MARTYR = "martyr"              # 殉道者 (被动得分)
     MASTERMIND = "mastermind"      # 首脑 (被动胜利)
 
@@ -50,6 +51,7 @@ class PromptType(Enum):
     SHINOBI_DECISION = "shinobi_decision"
     KILL_REACTION = "kill_reaction"
     GRAVEROBBER_PICK = "graverobber_pick"
+    GRAVEROBBER_PLAY = "graverobber_play"
     TROUBLEMAKER_REVEAL = "troublemaker_reveal"
     SOUL_MERCHANT_CHOICE = "soul_merchant_choice"
     SOUL_MERCHANT_SWAP = "soul_merchant_swap"
@@ -111,14 +113,24 @@ class Player:
 
     def __init__(self, sid: str, name: str, avatar: int, player_id: str = ""):
         self.sid = sid
-        self.player_id = player_id or str(uuid.uuid4())[:12]
+        # This value is a bearer credential used to reclaim a disconnected seat.
+        # Use cryptographic randomness rather than a shortened UUID.
+        self.player_id = player_id or secrets.token_urlsafe(24)
         self.name = name
         self.avatar = avatar
         self.house_card: Optional[HouseCard] = None
+        # The last identity this player is entitled to know.  This deliberately
+        # remains stale after Shapeshifter swaps their face-down house card.
+        self.known_house_card: Optional[HouseCard] = None
+        # Private intelligence is keyed by stable player id so it survives a
+        # Socket.IO reconnect (which changes the public sid).
+        self.known_houses: Dict[str, HouseCard] = {}
+        self.known_scores: Dict[str, List[int]] = {}
         self.hand: List[Card] = []
         self.played_cards: List[Card] = []
         self.alive = True
         self.connected = True
+        self.disconnect_version = 0
         self.score_tokens: List[int] = []
         self.house_revealed = False
 
@@ -202,7 +214,9 @@ class GameRoom:
     """Complete state for one game room."""
 
     MAX_PLAYERS = 11
-    MIN_PLAYERS = 3
+    # The normal game supports 4-11 players.  The physical two-player variant
+    # has a different draft and three virtual characters per leader.
+    MIN_PLAYERS = 4
 
     def __init__(self, room_code: str, host_sid: str):
         self.room_code = room_code
@@ -220,9 +234,18 @@ class GameRoom:
         self.night_action_queue: List[Dict] = []
         self.current_action_index: int = 0
         self.pending_prompt: Optional[PendingPrompt] = None
+        # Each night rank begins with a simultaneous, secret commitment.  Only
+        # after all living players have committed do selected cards get shown
+        # and resolved by card number.
+        self.night_stage: str = "idle"  # idle | committing | resolving
+        self.phase_commitments: Dict[str, List[str]] = {}
 
         # Round event log (public messages)
         self.round_log: List[str] = []
+        # Reconnect snapshots for results screens.  Payloads are keyed by the
+        # stable player credential rather than the transient socket id.
+        self.last_round_results: Dict[str, Dict] = {}
+        self.last_game_over: Optional[Dict] = None
 
     # ── look-ups ──────────────────────────────────────────────────────────
 
@@ -259,6 +282,7 @@ class GameRoom:
             'phase': self.phase.value,
             'round_number': self.round_number,
             'current_rank': self.current_rank,
+            'night_stage': self.night_stage,
             'score_pool_count': len(self.score_pool),
             'discard_count': len(self.discard_pile),
             'players': plist,

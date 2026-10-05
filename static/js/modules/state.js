@@ -27,6 +27,10 @@ export const gameState = {
     // night
     currentRank: 0,
     currentAction: null,     // {rank, number, card_id, player_sid}
+    nightStage: 'idle',      // idle | committing | resolving
+    eligiblePhaseCards: [],
+    selectedPhaseCardIds: [],
+    phaseCommitted: false,
 
     // intel gathered this round
     revealedInfo: {},        // sid → { house?, handCards? }
@@ -41,5 +45,9 @@ export function resetRoundState() {
     gameState.draftedCards = [];
     gameState.currentRank = 0;
     gameState.currentAction = null;
+    gameState.nightStage = 'idle';
+    gameState.eligiblePhaseCards = [];
+    gameState.selectedPhaseCardIds = [];
+    gameState.phaseCommitted = false;
     gameState.revealedInfo = {};
 }

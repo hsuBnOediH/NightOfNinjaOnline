@@ -3,7 +3,7 @@
 import { gameState } from './state.js';
 import { CARD_INFO, HOUSE_INFO, getCardName, getHouseName } from './constants.js';
 import { emit } from './socket.js';
-import { showModal, hideModal, showInfoModal, showConfirm, addLog, toast } from './utils.js';
+import { showModal, hideModal, showInfoModal, showConfirm, addLog, toast, escapeHtml } from './utils.js';
 import { createCardElement, updateDraftCollection, showPromptModal, hidePromptModal } from './ui.js';
 import { t } from './i18n.js';
 
@@ -84,12 +84,14 @@ function showTargetSelection(card, numTargets) {
     container.innerHTML = '';
     _selectionQueue = [];
 
-    const selfTargetCards = ['judge', 'thief'];
-    const isSelfTarget = card.type === 'trickster' && selfTargetCards.includes(card.variant);
+    const canTargetSelf = ['assassin', 'shinobi'].includes(card.type)
+        || (card.type === 'trickster' && ['shapeshifter', 'judge'].includes(card.variant));
+    const requiresLivingTarget = ['assassin', 'shinobi'].includes(card.type)
+        || (card.type === 'trickster' && card.variant === 'judge');
 
     (gameState.players || []).forEach(p => {
-        if (!p.alive) return;
-        if (p.sid === gameState.mySid && !isSelfTarget) return;
+        if (requiresLivingTarget && !p.alive) return;
+        if (p.sid === gameState.mySid && !canTargetSelf) return;
 
         const el = document.createElement('div');
         el.className = 'target-option';
@@ -102,8 +104,11 @@ function showTargetSelection(card, numTargets) {
             const houseName = getHouseName(info.house.house);
             extra = ` <span style="color:${hi.color};font-size:.85em;">[${houseName} ${info.house.number || ''}]</span>`;
         }
+        if (Array.isArray(info?.scores)) {
+            extra += ` <span style="color:var(--accent);font-size:.8em;">[🏅 ${info.scores.join(', ')}]</span>`;
+        }
 
-        el.innerHTML = `<img src="/static/img/avatar_${p.avatar}.png" style="width:40px;height:40px;border-radius:50%;"><span>${p.name}${extra}</span>`;
+        el.innerHTML = `<img src="/static/img/avatar_${Number(p.avatar) || 1}.png" style="width:40px;height:40px;border-radius:50%;"><span>${escapeHtml(p.name)}${extra}</span>`;
 
         el.onclick = () => {
             if (numTargets === 2) {
@@ -167,7 +172,7 @@ export function handleActionResult(data) {
         return;
     }
 
-    let html = `<p style="font-size:1.05em;margin-bottom:12px;">${data.message}</p>`;
+    let html = `<p style="font-size:1.05em;margin-bottom:12px;">${escapeHtml(data.message)}</p>`;
 
     (data.effects || []).forEach(eff => {
         if (eff.type === 'reveal_house') {
@@ -175,25 +180,39 @@ export function handleActionResult(data) {
             const houseName = getHouseName(eff.house?.house);
             html += `<div style="margin-top:12px;padding:12px;border:2px solid ${hi.color || '#555'};border-radius:8px;text-align:center;background:rgba(0,0,0,.3);">`;
             html += `<div style="font-size:.85em;color:var(--text-secondary);">${t('reveal_identity')}</div>`;
-            html += `<div style="font-size:1.2em;font-weight:bold;color:${hi.color || '#fff'};margin-top:4px;">${eff.target_name}: ${houseName} ${eff.house?.number || ''}</div>`;
+            html += `<div style="font-size:1.2em;font-weight:bold;color:${hi.color || '#fff'};margin-top:4px;">${escapeHtml(eff.target_name)}: ${houseName} ${eff.house?.number || ''}</div>`;
             html += `</div>`;
 
             // Store intelligence
             if (!gameState.revealedInfo[eff.target_sid]) gameState.revealedInfo[eff.target_sid] = {};
             gameState.revealedInfo[eff.target_sid].house = eff.house;
+            if (eff.target_sid === gameState.mySid) {
+                gameState.myHouse = eff.house;
+                const img = document.getElementById('house-img');
+                const name = document.getElementById('house-name');
+                const tier = document.getElementById('house-tier');
+                if (img) img.src = `/static/img/${eff.house.house}.png`;
+                if (name) {
+                    name.textContent = getHouseName(eff.house.house);
+                    name.style.color = hi.color || '#fff';
+                }
+                if (tier) tier.textContent = eff.house.number ? t('house_tier', eff.house.number) : '';
+            }
 
         } else if (eff.type === 'reveal_hand_card') {
             const cn = getCardName(eff.card);
             html += `<div style="margin-top:12px;padding:12px;border:1px solid #666;border-radius:8px;text-align:center;background:rgba(0,0,0,.3);">`;
             html += `<div style="font-size:.85em;color:var(--text-secondary);">${t('reveal_hand_card')}</div>`;
-            html += `<div style="font-size:1.1em;font-weight:bold;color:var(--accent);margin-top:4px;">${eff.target_name}: ${cn} #${eff.card?.number || '?'}</div>`;
+            html += `<div style="font-size:1.1em;font-weight:bold;color:var(--accent);margin-top:4px;">${escapeHtml(eff.target_name)}: ${cn} #${eff.card?.number || '?'}</div>`;
             html += `</div>`;
 
         } else if (eff.type === 'reveal_scores') {
             html += `<div style="margin-top:12px;padding:12px;border:1px solid #666;border-radius:8px;text-align:center;background:rgba(0,0,0,.3);">`;
             html += `<div style="font-size:.85em;color:var(--text-secondary);">${t('score_tokens_label')}</div>`;
-            html += `<div style="font-size:1.1em;margin-top:4px;">${eff.target_name}: [${(eff.scores || []).join(', ')}] = ${eff.total} pts</div>`;
+            html += `<div style="font-size:1.1em;margin-top:4px;">${escapeHtml(eff.target_name)}: [${(eff.scores || []).join(', ')}] = ${eff.total} pts</div>`;
             html += `</div>`;
+            if (!gameState.revealedInfo[eff.target_sid]) gameState.revealedInfo[eff.target_sid] = {};
+            gameState.revealedInfo[eff.target_sid].scores = [...(eff.scores || [])];
 
         } else if (eff.type === 'card_gained') {
             const cn = getCardName(eff.card);

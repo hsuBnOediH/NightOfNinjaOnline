@@ -11,7 +11,7 @@ const steps = {
             icon: '🏮',
             title: '欢迎来到忍者之夜！',
             content: `
-                <p>这是一款<strong>社交推理卡牌对战游戏</strong>，每局 3-11 人。</p>
+                <p>这是一款<strong>社交推理卡牌对战游戏</strong>，常规模式每局 4-11 人。</p>
                 <p>玩家被秘密分为两个敌对流派：</p>
                 <div class="tutorial-houses">
                     <div class="tutorial-house lotus">🪷 莲花（蓝）</div>
@@ -81,7 +81,7 @@ const steps = {
                     </div>
                 </div>
                 <p style="margin-top:12px; font-size:0.9em; color:var(--text-secondary);">
-                    💡 还有 <strong>殉道者</strong>（死亡得分）、<strong>经施僧</strong>（反杀）、<strong>首脑</strong>（强制胜利）等特殊卡！
+                    💡 还有 <strong>殉道者</strong>（死亡得分）、<strong>还施僧</strong>（反杀）、<strong>首脑</strong>（强制胜利）等特殊卡！
                 </p>
             `
         },
@@ -130,7 +130,7 @@ const steps = {
             icon: '🏮',
             title: 'Welcome to Night of Ninja!',
             content: `
-                <p>A <strong>social deduction card game</strong> for 3-11 players.</p>
+                <p>A <strong>social deduction card game</strong> for 4-11 players in standard mode.</p>
                 <p>Players are secretly divided into two rival houses:</p>
                 <div class="tutorial-houses">
                     <div class="tutorial-house lotus">🪷 Lotus (Blue)</div>

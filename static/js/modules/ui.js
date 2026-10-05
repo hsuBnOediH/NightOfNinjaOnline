@@ -3,6 +3,7 @@
 import { gameState } from './state.js';
 import { CARD_INFO, HOUSE_INFO, getCardName, getCardDesc, getHouseName } from './constants.js';
 import { t } from './i18n.js';
+import { escapeHtml } from './utils.js';
 
 // ── Screen navigation ────────────────────────────────────────────────────────
 
@@ -21,9 +22,11 @@ export function updatePlayerList(players) {
     players.forEach(p => {
         const card = document.createElement('div');
         card.className = 'player-card';
+        if (!p.connected) card.classList.add('disconnected');
         card.innerHTML = `
-            <img src="/static/img/avatar_${p.avatar}.png" alt="${p.name}">
-            <div class="player-name">${p.name}</div>
+            <img src="/static/img/avatar_${Number(p.avatar) || 1}.png" alt="${escapeHtml(p.name)}">
+            <div class="player-name">${escapeHtml(p.name)}</div>
+            ${p.connected ? '' : `<div class="waiting-player-status">${t('status_reconnecting')}</div>`}
         `;
         list.appendChild(card);
     });
@@ -34,6 +37,16 @@ export function updatePlayerList(players) {
         sp.style.display = 'block';
         const inp = document.getElementById('winning-threshold');
         if (inp) inp.disabled = !gameState.isHost;
+    }
+    const start = document.getElementById('start-game-btn');
+    if (start && gameState.isHost) {
+        const hasOfflinePlayer = players.some(p => !p.connected);
+        start.disabled = players.length < 4 || hasOfflinePlayer;
+        start.textContent = hasOfflinePlayer
+            ? t('waiting_for_reconnect')
+            : (players.length < 4
+                ? t('need_more_players', players.length)
+                : t('start_game'));
     }
 }
 
@@ -226,7 +239,7 @@ export function showPromptModal(promptData, onResponse) {
         title.textContent = t('shinobi_decision');
         const info = HOUSE_INFO[d.target_house?.house] || {};
         const houseName = getHouseName(d.target_house?.house);
-        body.innerHTML = `<p style="margin-bottom:16px;">${t('target_identity', `<strong>${d.target_name}</strong>`, `<span style="color:${info.color || '#fff'};font-weight:bold;">${houseName}`, `${d.target_house?.number || ''}</span>`)}</p>`;
+        body.innerHTML = `<p style="margin-bottom:16px;">${t('target_identity', `<strong>${escapeHtml(d.target_name)}</strong>`, `<span style="color:${info.color || '#fff'};font-weight:bold;">${houseName}`, `${d.target_house?.number || ''}</span>`)}</p>`;
         _addPromptButtons(body, [
             { label: t('kill_btn'), value: { kill: true } },
             { label: t('spare_btn'), value: { kill: false }, secondary: true },
@@ -245,11 +258,30 @@ export function showPromptModal(promptData, onResponse) {
         });
         body.appendChild(row);
 
+    } else if (pt === 'graverobber_play') {
+        title.textContent = t('graverobber_play_title');
+        const card = d.card;
+        if (card) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;justify-content:center;margin:12px 0;';
+            row.appendChild(createCardElement(card, true));
+            body.appendChild(row);
+        }
+        const note = document.createElement('p');
+        note.textContent = d.can_play_later
+            ? t('graverobber_play_choice')
+            : t('graverobber_phase_passed');
+        body.appendChild(note);
+        _addPromptButtons(body, [
+            { label: t('play_now'), value: { play_now: true } },
+            { label: t('keep_card'), value: { play_now: false }, secondary: true },
+        ], onResponse);
+
     } else if (pt === 'troublemaker_reveal') {
         title.textContent = t('troublemaker_title');
         const info = HOUSE_INFO[d.target_house?.house] || {};
         const houseName = getHouseName(d.target_house?.house);
-        body.innerHTML = `<p style="margin-bottom:16px;">${t('troublemaker_identity', `<strong>${d.target_name}</strong>`, `<span style="color:${info.color || '#fff'};font-weight:bold;">${houseName}`, `${d.target_house?.number || ''}</span>`)}</p><p>${t('troublemaker_reveal_q')}</p>`;
+        body.innerHTML = `<p style="margin-bottom:16px;">${t('troublemaker_identity', `<strong>${escapeHtml(d.target_name)}</strong>`, `<span style="color:${info.color || '#fff'};font-weight:bold;">${houseName}`, `${d.target_house?.number || ''}</span>`)}</p><p>${t('troublemaker_reveal_q')}</p>`;
         _addPromptButtons(body, [
             { label: t('reveal_public'), value: { reveal: true } },
             { label: t('keep_secret'), value: { reveal: false }, secondary: true },
@@ -257,7 +289,7 @@ export function showPromptModal(promptData, onResponse) {
 
     } else if (pt === 'soul_merchant_choice') {
         title.textContent = t('soul_merchant_title');
-        body.innerHTML = `<p style="margin-bottom:16px;">${t('soul_merchant_choose', `<strong>${d.target_name}</strong>`)}</p>`;
+        body.innerHTML = `<p style="margin-bottom:16px;">${t('soul_merchant_choose', `<strong>${escapeHtml(d.target_name)}</strong>`)}</p>`;
         _addPromptButtons(body, [
             { label: t('view_house'), value: { choice: 'house' } },
             { label: t('view_scores'), value: { choice: 'scores' } },
@@ -265,15 +297,40 @@ export function showPromptModal(promptData, onResponse) {
 
     } else if (pt === 'soul_merchant_swap') {
         title.textContent = t('soul_merchant_swap_title');
-        body.innerHTML = `<p style="margin-bottom:16px;">${t('soul_merchant_swap_q', `<strong>${d.target_name}</strong>`)}</p>`;
+        body.innerHTML = `<p style="margin-bottom:16px;">${t('soul_merchant_swap_q', `<strong>${escapeHtml(d.target_name)}</strong>`)}</p>`;
+        const selectors = document.createElement('div');
+        selectors.className = 'token-swap-selectors';
+        const ownSelect = document.createElement('select');
+        const targetSelect = document.createElement('select');
+        (d.your_scores || []).forEach((score, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = t('your_token_option', score);
+            ownSelect.appendChild(option);
+        });
+        (d.target_scores || []).forEach((score, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = score == null
+                ? t('hidden_token_option', index + 1)
+                : t('target_token_option', score);
+            targetSelect.appendChild(option);
+        });
+        selectors.appendChild(ownSelect);
+        selectors.appendChild(targetSelect);
+        body.appendChild(selectors);
         _addPromptButtons(body, [
-            { label: t('swap_btn'), value: { swap: true } },
+            { label: t('swap_btn'), value: () => ({
+                swap: true,
+                own_index: Number(ownSelect.value),
+                target_index: Number(targetSelect.value),
+            }) },
             { label: t('no_swap_btn'), value: { swap: false }, secondary: true },
         ], onResponse);
 
     } else if (pt === 'shapeshifter_swap') {
         title.textContent = t('shapeshifter_title');
-        body.innerHTML = `<p style="margin-bottom:16px;">${t('shapeshifter_swap_q', `<strong>${d.target1_name}</strong>`, `<strong>${d.target2_name}</strong>`)}</p>`;
+        body.innerHTML = `<p style="margin-bottom:16px;">${t('shapeshifter_swap_q', `<strong>${escapeHtml(d.target1_name)}</strong>`, `<strong>${escapeHtml(d.target2_name)}</strong>`)}</p>`;
         _addPromptButtons(body, [
             { label: t('swap_identity_btn'), value: { swap: true } },
             { label: t('no_swap_identity_btn'), value: { swap: false }, secondary: true },
@@ -303,7 +360,7 @@ function _addPromptButtons(container, buttons, onResponse) {
         const btn = document.createElement('button');
         btn.className = b.secondary ? 'btn btn-secondary' : 'btn btn-primary';
         btn.textContent = b.label;
-        btn.onclick = () => onResponse(b.value);
+        btn.onclick = () => onResponse(typeof b.value === 'function' ? b.value() : b.value);
         row.appendChild(btn);
     });
     container.appendChild(row);
@@ -313,7 +370,9 @@ function _addPromptButtons(container, buttons, onResponse) {
 
 export function showRoundResults(data) {
     let html = '';
-    if (data.winning_house) {
+    if (data.full_tie) {
+        html += `<div style="text-align:center;margin-bottom:16px;color:var(--text-secondary);">${t('round_full_tie')}</div>`;
+    } else if (data.winning_house) {
         const houseName = getHouseName(data.winning_house);
         const hi = HOUSE_INFO[data.winning_house] || {};
         html += `<div style="text-align:center;margin-bottom:16px;"><span style="color:${hi.color || '#fff'};font-size:1.4em;font-weight:bold;">${t('house_won', houseName)}</span></div>`;
@@ -330,7 +389,7 @@ export function showRoundResults(data) {
         const hi = HOUSE_INFO[s.house?.house] || {};
         const isMe = s.sid === gameState.mySid;
         html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);${isMe ? 'background:rgba(255,255,255,0.05);' : ''}">`;
-        html += `<td style="padding:6px;">${isMe ? '⭐ ' : ''}${s.name}</td>`;
+        html += `<td style="padding:6px;">${isMe ? '⭐ ' : ''}${escapeHtml(s.name)}</td>`;
         html += `<td style="text-align:center;color:${hi.color || '#aaa'};">${houseName} ${s.house?.number || ''}</td>`;
         html += `<td style="text-align:center;">${s.alive ? '✅' : '💀'}</td>`;
         html += `<td style="text-align:center;font-weight:bold;">${s.total_score}</td>`;
@@ -344,7 +403,7 @@ export function showRoundResults(data) {
     }
 
     // Next round button for host
-    if (gameState.isHost) {
+    if (data.can_start_next_round) {
         html += `<div style="text-align:center;margin-top:20px;"><button class="btn btn-primary" id="next-round-btn">${t('next_round')}</button></div>`;
     } else {
         html += `<div style="text-align:center;margin-top:20px;color:var(--text-secondary);">${t('waiting_host_next')}</div>`;

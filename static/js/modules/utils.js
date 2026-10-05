@@ -2,6 +2,12 @@
 
 import { t } from './i18n.js';
 
+export function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+    })[ch]);
+}
+
 export function addLog(message) {
     const log = document.getElementById('game-log');
     if (!log) return;

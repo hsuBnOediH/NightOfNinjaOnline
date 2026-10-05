@@ -3,13 +3,34 @@ Night of Ninja Online - Game Engine
 Core logic: house assignment, drafting, night-phase execution, scoring.
 """
 
-from typing import List, Dict, Optional, Tuple, Any
+from dataclasses import dataclass
+from typing import List, Dict, Optional, Any
 import random
 from game.models import (
     GameRoom, Player, Card, HouseCard, HouseType, CardType,
     TricksterVariant, GamePhase, PromptType, PendingPrompt,
     create_card_deck, create_score_pool,
 )
+
+
+@dataclass
+class RoundOutcome:
+    """Authoritative result of the reveal phase."""
+
+    winning_house: Optional[HouseType]
+    faction_winners: List[Player]
+    ronin_winners: List[Player]
+    full_tie: bool = False
+
+    @property
+    def scoring_players(self) -> List[Player]:
+        seen: set[str] = set()
+        result: List[Player] = []
+        for player in self.faction_winners + self.ronin_winners:
+            if player.player_id not in seen:
+                seen.add(player.player_id)
+                result.append(player)
+        return result
 
 
 class GameEngine:
@@ -41,6 +62,9 @@ class GameEngine:
         random.shuffle(houses)
         for player, house in zip(room.players, houses):
             player.house_card = house
+            # Keep a snapshot: Shapeshifter exchanges the physical cards but
+            # the affected players may not look at their new identities.
+            player.known_house_card = HouseCard(house.house, house.number)
 
     @staticmethod
     def start_round(room: GameRoom):
@@ -53,12 +77,18 @@ class GameEngine:
         room.current_action_index = 0
         room.pending_prompt = None
         room.draft_state = {}
+        room.night_stage = "idle"
+        room.phase_commitments = {}
+        room.last_round_results = {}
+        room.last_game_over = None
 
         for p in room.players:
             p.alive = True
             p.hand = []
             p.played_cards = []
             p.house_revealed = False
+            p.known_houses = {}
+            p.known_scores = {}
 
         GameEngine.assign_houses(room)
 
@@ -153,29 +183,115 @@ class GameEngine:
         room.phase = GamePhase.NIGHT
         room.draft_state = {}
         room.night_action_queue = []
+        room.current_action_index = 0
+        room.current_rank = 1
+        room.night_stage = "committing"
+        room.phase_commitments = {}
 
-        for player in room.players:
-            for card in player.hand:
-                if card.rank is not None:
-                    room.night_action_queue.append({
-                        'priority': (card.rank, card.number or 0),
+    @staticmethod
+    def eligible_phase_cards(room: GameRoom, player: Player) -> List[Card]:
+        """Cards the player may secretly commit in the current rank."""
+        if room.phase != GamePhase.NIGHT or room.night_stage != "committing":
+            return []
+        return [card for card in player.hand if card.rank == room.current_rank]
+
+    @staticmethod
+    def commit_phase_cards(room: GameRoom, player_sid: str,
+                           card_ids: List[str]) -> tuple[bool, str]:
+        """Record one player's simultaneous play/pass decision.
+
+        Every living connected player commits, including players with no card.
+        That prevents the server from leaking who holds the current card type.
+        """
+        if room.phase != GamePhase.NIGHT or room.night_stage != "committing":
+            return False, "当前不在选牌阶段"
+        player = room.get_player_by_sid(player_sid)
+        if not player or not player.alive:
+            return False, "你已经死亡"
+        if player_sid in room.phase_commitments:
+            return False, "你已经锁定了本阶段的选择"
+        if not isinstance(card_ids, list) or len(card_ids) != len(set(card_ids)):
+            return False, "无效的卡牌选择"
+
+        eligible = {card.id: card for card in GameEngine.eligible_phase_cards(room, player)}
+        if any(not isinstance(card_id, str) or card_id not in eligible for card_id in card_ids):
+            return False, "只能选择当前阶段的手牌"
+
+        room.phase_commitments[player_sid] = list(card_ids)
+        GameEngine._auto_commit_disconnected(room)
+        return True, ""
+
+    @staticmethod
+    def _auto_commit_disconnected(room: GameRoom):
+        for player in room.get_alive_players():
+            if not player.connected and player.sid not in room.phase_commitments:
+                room.phase_commitments[player.sid] = []
+
+    @staticmethod
+    def phase_commit_progress(room: GameRoom) -> tuple[int, int]:
+        required = [p for p in room.get_alive_players() if p.connected]
+        committed = [p for p in required if p.sid in room.phase_commitments]
+        return len(committed), len(required)
+
+    @staticmethod
+    def phase_commit_complete(room: GameRoom) -> bool:
+        GameEngine._auto_commit_disconnected(room)
+        return all(p.sid in room.phase_commitments for p in room.get_alive_players())
+
+    @staticmethod
+    def finalize_phase_commitments(room: GameRoom) -> List[Dict]:
+        """Reveal committed cards and build the numbered resolution queue."""
+        if not GameEngine.phase_commit_complete(room):
+            return []
+
+        seat_order = {player.sid: index for index, player in enumerate(room.players)}
+        queue: List[Dict] = []
+        for player in room.get_alive_players():
+            for card_id in room.phase_commitments.get(player.sid, []):
+                card = player.find_card_by_id(card_id)
+                if card and card.rank == room.current_rank:
+                    queue.append({
+                        'priority': (card.number or 0, seat_order[player.sid]),
                         'sid': player.sid,
                         'card': card,
                     })
-
-        room.night_action_queue.sort(key=lambda x: x['priority'])
+        queue.sort(key=lambda action: action['priority'])
+        room.night_action_queue = queue
         room.current_action_index = 0
-        if room.night_action_queue:
-            room.current_rank = room.night_action_queue[0]['priority'][0]
+        room.night_stage = "resolving"
+        return queue
+
+    @staticmethod
+    def advance_night_rank(room: GameRoom) -> bool:
+        """Move to the next commitment stage; False means night is over."""
+        if room.current_rank >= 5:
+            room.night_stage = "idle"
+            return False
+        room.current_rank += 1
+        room.night_stage = "committing"
+        room.phase_commitments = {}
+        room.night_action_queue = []
+        room.current_action_index = 0
+        return True
 
     @staticmethod
     def get_current_action(room: GameRoom) -> Optional[Dict]:
-        """Return the next valid action, skipping dead or disconnected players."""
+        """Return the next valid revealed action.
+
+        A committed card whose owner dies before its number resolves is exposed
+        and discarded without effect, matching the physical game.
+        """
         while room.current_action_index < len(room.night_action_queue):
             action = room.night_action_queue[room.current_action_index]
             player = room.get_player_by_sid(action['sid'])
             if player and player.alive and player.connected:
                 return action
+            if player:
+                card = player.find_card_by_id(action['card'].id)
+                if card:
+                    player.remove_card(card)
+                    player.played_cards.append(card)
+                    room.discard_pile.append(card)
             room.current_action_index += 1
         return None
 
@@ -188,8 +304,16 @@ class GameEngine:
                      target_sid: Optional[str] = None,
                      extra_data: Optional[Dict] = None) -> Dict[str, Any]:
         player = room.get_player_by_sid(player_sid)
+        if not player or not player.alive or player.find_card_by_id(card.id) is None:
+            return _fail("无法打出这张牌")
         target = room.get_player_by_sid(target_sid) if target_sid else None
         extra = extra_data or {}
+
+        validation_error = GameEngine._validate_card_targets(
+            room, player, card, target, extra
+        )
+        if validation_error:
+            return _fail(validation_error)
 
         ct = card.card_type
         if ct == CardType.SPY:
@@ -203,14 +327,78 @@ class GameEngine:
         elif ct == CardType.TRICKSTER:
             result = GameEngine._exec_trickster(room, player, target, card, extra)
         else:
-            result = _ok(f"{player.name} 打出了 {ct.value}")
+            return _fail("这张特殊牌不能主动打出")
 
-        # Move card from hand → played / discard
-        player.remove_card(card)
-        player.played_cards.append(card)
-        room.discard_pile.append(card)
+        # Invalid input must not consume a card or forfeit its action.
+        if result.get('success'):
+            GameEngine._record_private_knowledge(room, player, result.get('effects', []))
+            player.remove_card(card)
+            player.played_cards.append(card)
+            room.discard_pile.append(card)
 
         return result
+
+    @staticmethod
+    def _record_private_knowledge(room: GameRoom, viewer: Player, effects: List[Dict]):
+        """Remember private identity information across reconnects."""
+        for effect in effects:
+            if effect.get('type') == 'reveal_house':
+                house = effect.get('house') or {}
+                target = room.get_player_by_sid(effect.get('target_sid', ''))
+                try:
+                    snapshot = HouseCard(HouseType(house['house']), int(house['number']))
+                    if target:
+                        viewer.known_houses[target.player_id] = snapshot
+                    if target is viewer:
+                        viewer.known_house_card = snapshot
+                except (KeyError, TypeError, ValueError):
+                    pass
+            elif effect.get('type') == 'reveal_scores':
+                target = room.get_player_by_sid(effect.get('target_sid', ''))
+                scores = effect.get('scores')
+                if target and isinstance(scores, list):
+                    viewer.known_scores[target.player_id] = list(scores)
+
+    @staticmethod
+    def _validate_card_targets(room: GameRoom, player: Player, card: Card,
+                               target: Optional[Player], extra: Dict) -> str:
+        """Apply the target wording printed on the physical cards."""
+        ct = card.card_type
+
+        if ct in (CardType.SPY, CardType.MYSTIC):
+            if not target:
+                return "需要选择一名其他玩家"
+            return "这张牌不能以自己为目标" if target.sid == player.sid else ""
+
+        if ct in (CardType.ASSASSIN, CardType.SHINOBI):
+            if not target:
+                return "需要选择一名玩家"
+            return "目标已经死亡" if not target.alive else ""
+
+        if ct != CardType.TRICKSTER:
+            return ""
+
+        variant = card.variant
+        if variant == TricksterVariant.GRAVEROBBER.value:
+            return ""
+        if variant == TricksterVariant.SHAPESHIFTER.value:
+            second_sid = extra.get('extra_target_sid')
+            second = room.get_player_by_sid(second_sid) if second_sid else None
+            if not target or not second:
+                return "需要选择两名玩家"
+            return "必须选择两名不同的玩家" if target.sid == second.sid else ""
+
+        if not target:
+            return "需要选择一名玩家"
+        if variant in (
+            TricksterVariant.TROUBLEMAKER.value,
+            TricksterVariant.SOUL_MERCHANT.value,
+            TricksterVariant.THIEF.value,
+        ) and target.sid == player.sid:
+            return "这张牌必须以其他玩家为目标"
+        if variant == TricksterVariant.JUDGE.value and not target.alive:
+            return "目标已经死亡"
+        return ""
 
     # ────────────────── individual card executors ─────────────────────────
 
@@ -358,7 +546,11 @@ class GameEngine:
                 c = avail[0]
                 room.discard_pile.remove(c)
                 player.hand.append(c)
-                GameEngine._inject_into_queue(room, player, c)
+                if c.rank is not None:
+                    room.pending_prompt = PendingPrompt(PromptType.GRAVEROBBER_PLAY, player.sid, {
+                        'card': c.to_dict(),
+                        'can_play_later': c.rank > room.current_rank,
+                    })
                 return _ok(f"你从弃牌堆获得了一张卡牌", f"{player.name} 使用了掘墓人",
                            [{'type': 'card_gained', 'card': c.to_dict()}])
             room.pending_prompt = PendingPrompt(PromptType.GRAVEROBBER_PICK, player.sid, {
@@ -393,6 +585,7 @@ class GameEngine:
         # ── #5 窃贼 Thief ────────────────────────────────────────────────
         if v == TricksterVariant.THIEF.value:
             player.house_revealed = True
+            player.known_house_card = HouseCard(player.house_card.house, player.house_card.number)
             reveal_eff: Dict = {
                 'type': 'reveal_house_public', 'target_sid': player.sid,
                 'target_name': player.name, 'house': player.house_card.to_dict(),
@@ -400,7 +593,7 @@ class GameEngine:
             if not target:
                 return _fail("需要选择一个目标")
             if len(target.score_tokens) > len(player.score_tokens) and target.score_tokens:
-                token = target.score_tokens.pop()
+                token = target.score_tokens.pop(random.randrange(len(target.score_tokens)))
                 player.score_tokens.append(token)
                 return _ok(f"你偷取了 {target.name} 的一枚分数（{token}分）",
                            f"{player.name}（窃贼）偷取了 {target.name} 的分数",
@@ -411,6 +604,7 @@ class GameEngine:
         # ── #6 裁判 Judge ────────────────────────────────────────────────
         if v == TricksterVariant.JUDGE.value:
             player.house_revealed = True
+            player.known_house_card = HouseCard(player.house_card.house, player.house_card.number)
             effs: List[Dict] = [{
                 'type': 'reveal_house_public', 'target_sid': player.sid,
                 'target_name': player.name, 'house': player.house_card.to_dict(),
@@ -435,23 +629,27 @@ class GameEngine:
         if not prompt or prompt.prompt_type != PromptType.KILL_REACTION:
             return _fail("无待处理的反应")
 
+        if reaction not in prompt.data.get('options', []):
+            return _fail("无效的反制选择")
+
         attacker = room.get_player_by_sid(prompt.data['attacker_sid'])
         target = room.get_player_by_sid(prompt.target_sid)
-        room.pending_prompt = None
 
         if reaction == 'mirror_monk' and target and target.has_card_type(CardType.MIRROR_MONK):
+            room.pending_prompt = None
             mc = target.get_card_of_type(CardType.MIRROR_MONK)
             target.remove_card(mc)
             target.played_cards.append(mc)
             room.discard_pile.append(mc)
             if attacker:
                 attacker.alive = False
-            msg = f"{target.name} 使用经施僧反杀了 {attacker.name if attacker else '???'}！"
+            msg = f"{target.name} 使用还施僧反杀了 {attacker.name if attacker else '???'}！"
             return _ok(msg, msg, [{'type': 'kill_reflected',
                                    'dead_sid': attacker.sid if attacker else '',
                                    'reflector_sid': target.sid}])
 
         if reaction == 'martyr' and target and target.has_card_type(CardType.MARTYR):
+            room.pending_prompt = None
             mc = target.get_card_of_type(CardType.MARTYR)
             target.remove_card(mc)
             target.played_cards.append(mc)
@@ -467,6 +665,7 @@ class GameEngine:
                        [{'type': 'martyr_death', 'target_sid': target.sid}])
 
         # No reaction → straight kill
+        room.pending_prompt = None
         if target:
             target.alive = False
         msg = f"{target.name if target else '???'} 被杀死了"
@@ -478,6 +677,8 @@ class GameEngine:
         if not prompt or prompt.prompt_type != PromptType.SHINOBI_DECISION:
             return _fail("无待处理的决定")
 
+        if not isinstance(kill, bool):
+            return _fail("无效的上忍决定")
         shinobi = room.get_player_by_sid(prompt.target_sid)
         target = room.get_player_by_sid(prompt.data['target_sid'])
         room.pending_prompt = None
@@ -522,25 +723,56 @@ class GameEngine:
             return _fail("无待处理的选择")
 
         player = room.get_player_by_sid(prompt.target_sid)
-        room.pending_prompt = None
 
         if not player:
             return _fail("玩家不存在")
 
+        allowed_ids = set(prompt.data.get('card_ids', []))
         chosen = None
         for c in room.discard_pile:
-            if c.id == card_id:
+            if c.id == card_id and c.id in allowed_ids:
                 chosen = c
                 break
         if not chosen:
             return _fail("无效的卡牌选择")
 
+        room.pending_prompt = None
         room.discard_pile.remove(chosen)
         player.hand.append(chosen)
-        GameEngine._inject_into_queue(room, player, chosen)
+
+        # A ranked card may be used immediately even if its printed phase has
+        # already passed.  Keeping it is also legal, though it will only be
+        # playable later this round if its normal phase is still ahead.
+        if chosen.rank is not None:
+            room.pending_prompt = PendingPrompt(PromptType.GRAVEROBBER_PLAY, player.sid, {
+                'card': chosen.to_dict(),
+                'can_play_later': chosen.rank > room.current_rank,
+            })
 
         return _ok(f"你获得了一张卡牌", "",
                    [{'type': 'card_gained', 'card': chosen.to_dict()}])
+
+    @staticmethod
+    def resolve_graverobber_play(room: GameRoom, play_now: bool) -> Dict[str, Any]:
+        prompt = room.pending_prompt
+        if not prompt or prompt.prompt_type != PromptType.GRAVEROBBER_PLAY:
+            return _fail("无待处理的掘墓人决定")
+
+        if not isinstance(play_now, bool):
+            return _fail("无效的掘墓人决定")
+        player = room.get_player_by_sid(prompt.target_sid)
+        card_data = prompt.data.get('card') or {}
+        card = player.find_card_by_id(card_data.get('id', '')) if player else None
+        room.pending_prompt = None
+        if not player or not card:
+            return _fail("获得的卡牌已不存在")
+
+        if play_now:
+            GameEngine._insert_immediate_action(room, player, card)
+            return _ok("这张牌将在掘墓人后立即结算", "")
+        if card.rank is not None and card.rank <= room.current_rank:
+            return _ok("你保留了这张牌，但其阶段已过，本回合不能再使用", "")
+        return _ok("你保留了这张牌，可在对应阶段使用", "")
 
     @staticmethod
     def resolve_troublemaker_reveal(room: GameRoom, reveal: bool) -> Dict[str, Any]:
@@ -548,11 +780,14 @@ class GameEngine:
         if not prompt or prompt.prompt_type != PromptType.TROUBLEMAKER_REVEAL:
             return _fail("无待处理的决定")
 
+        if not isinstance(reveal, bool):
+            return _fail("无效的揭示决定")
         target = room.get_player_by_sid(prompt.data['target_sid'])
         room.pending_prompt = None
 
         if reveal and target:
             target.house_revealed = True
+            target.known_house_card = HouseCard(target.house_card.house, target.house_card.number)
             return _ok(f"你公开揭示了 {target.name} 的身份！",
                        f"{target.name} 的身份被公开揭示！",
                        [{'type': 'reveal_house_public', 'target_sid': target.sid,
@@ -565,12 +800,14 @@ class GameEngine:
         if not prompt or prompt.prompt_type != PromptType.SOUL_MERCHANT_CHOICE:
             return _fail("无待处理的选择")
 
+        if choice not in ('house', 'scores'):
+            return _fail("无效的查看选项")
         player = room.get_player_by_sid(prompt.target_sid)
         target = room.get_player_by_sid(prompt.data['target_sid'])
-        room.pending_prompt = None
 
         if not player or not target:
             return _fail("玩家不存在")
+        room.pending_prompt = None
 
         effects: List[Dict] = []
         msg = ""
@@ -589,27 +826,43 @@ class GameEngine:
         if player.score_tokens and target.score_tokens:
             room.pending_prompt = PendingPrompt(PromptType.SOUL_MERCHANT_SWAP, player.sid, {
                 'target_sid': target.sid, 'target_name': target.name,
+                'your_scores': list(player.score_tokens),
+                # Choosing the house keeps the target's token values hidden.
+                'target_scores': (list(target.score_tokens) if choice == 'scores'
+                                  else [None] * len(target.score_tokens)),
             })
         return _ok(msg, "", effects)
 
     @staticmethod
-    def resolve_soul_merchant_swap(room: GameRoom, do_swap: bool) -> Dict[str, Any]:
+    def resolve_soul_merchant_swap(room: GameRoom, do_swap: bool,
+                                   own_index: Any = None,
+                                   target_index: Any = None) -> Dict[str, Any]:
         prompt = room.pending_prompt
         if not prompt or prompt.prompt_type != PromptType.SOUL_MERCHANT_SWAP:
             return _fail("无待处理的交换")
 
+        if not isinstance(do_swap, bool):
+            return _fail("无效的交换决定")
         player = room.get_player_by_sid(prompt.target_sid)
         target = room.get_player_by_sid(prompt.data['target_sid'])
-        room.pending_prompt = None
 
         if do_swap and player and target and player.score_tokens and target.score_tokens:
-            pi = random.randint(0, len(player.score_tokens) - 1)
-            ti = random.randint(0, len(target.score_tokens) - 1)
+            try:
+                pi = int(own_index)
+                ti = int(target_index)
+            except (TypeError, ValueError):
+                return _fail("请选择双方要交换的分数指示物")
+            if not (0 <= pi < len(player.score_tokens) and
+                    0 <= ti < len(target.score_tokens)):
+                return _fail("无效的分数指示物选择")
+            room.pending_prompt = None
             player.score_tokens[pi], target.score_tokens[ti] = \
                 target.score_tokens[ti], player.score_tokens[pi]
+            player.known_scores[target.player_id] = list(target.score_tokens)
             return _ok(f"你与 {target.name} 交换了一枚分数",
                        f"灵魂商贩完成了分数交换",
                        [{'type': 'swap_score'}])
+        room.pending_prompt = None
         return _ok("你选择不交换分数", "")
 
     @staticmethod
@@ -618,15 +871,37 @@ class GameEngine:
         if not prompt or prompt.prompt_type != PromptType.SHAPESHIFTER_SWAP:
             return _fail("无待处理的交换")
 
+        if not isinstance(do_swap, bool):
+            return _fail("无效的身份交换决定")
         t1 = room.get_player_by_sid(prompt.data['target1_sid'])
         t2 = room.get_player_by_sid(prompt.data['target2_sid'])
+        actor = room.get_player_by_sid(prompt.target_sid)
         room.pending_prompt = None
 
         if do_swap and t1 and t2:
             t1.house_card, t2.house_card = t2.house_card, t1.house_card
+            # The printed card explicitly says neither target may inspect the
+            # new identity.  Any previous public reveal no longer applies.
+            t1.house_revealed = False
+            t2.house_revealed = False
+            private_effects: List[Dict] = []
+            if actor:
+                actor.known_houses[t1.player_id] = HouseCard(
+                    t1.house_card.house, t1.house_card.number
+                )
+                actor.known_houses[t2.player_id] = HouseCard(
+                    t2.house_card.house, t2.house_card.number
+                )
+                private_effects = [
+                    {'type': 'reveal_house', 'target_sid': t1.sid,
+                     'target_name': t1.name, 'house': t1.house_card.to_dict()},
+                    {'type': 'reveal_house', 'target_sid': t2.sid,
+                     'target_name': t2.name, 'house': t2.house_card.to_dict()},
+                ]
             return _ok(f"你互换了 {t1.name} 和 {t2.name} 的身份",
                        "百变者互换了两名玩家的身份！",
-                       [{'type': 'swap_identity', 't1': t1.sid, 't2': t2.sid}])
+                       [{'type': 'swap_identity', 't1': t1.sid, 't2': t2.sid,
+                         'actor_sid': actor.sid if actor else ''}, *private_effects])
         return _ok("你选择不互换身份", "")
 
     # ╔══════════════════════════════════════════════════════════════════════╗
@@ -634,14 +909,11 @@ class GameEngine:
     # ╚══════════════════════════════════════════════════════════════════════╝
 
     @staticmethod
-    def determine_winner(room: GameRoom) -> Tuple[Optional[HouseType], List[Player], List[Player]]:
-        """
-        Returns (winning_house, winning_faction_members, ronin_winners).
-        winning_faction_members includes ALL members (alive or dead).
-        """
+    def determine_winner(room: GameRoom) -> RoundOutcome:
+        """Resolve the reveal exactly as printed in the rulebook."""
         alive = room.get_alive_players()
         if not alive:
-            return None, [], []
+            return RoundOutcome(None, [], [])
 
         ronin_alive = [p for p in alive if p.house_card.house == HouseType.RONIN]
 
@@ -650,9 +922,9 @@ class GameEngine:
             if any(c.card_type == CardType.MASTERMIND for c in p.hand):
                 if p.house_card.house == HouseType.RONIN:
                     # No faction wins, only ronin scores
-                    return None, [], [p]
+                    return RoundOutcome(None, [], [p])
                 wh = p.house_card.house
-                return wh, room.get_players_by_house(wh), ronin_alive
+                return RoundOutcome(wh, room.get_players_by_house(wh), ronin_alive)
 
         # ── Rank comparison ──────────────────────────────────────────────
         lotus_alive = [p for p in alive if p.house_card.house == HouseType.LOTUS]
@@ -662,7 +934,7 @@ class GameEngine:
         crane_ranks = sorted([p.house_card.number for p in crane_alive]) if crane_alive else []
 
         if not lotus_ranks and not crane_ranks:
-            return None, [], ronin_alive
+            return RoundOutcome(None, [], ronin_alive)
 
         if not crane_ranks:
             wh = HouseType.LOTUS
@@ -681,60 +953,58 @@ class GameEngine:
                     wh = HouseType.CRANE
                     break
             if wh is None:
-                # Full tie – all survivors share victory
-                all_members = [p for p in room.players
-                               if p.house_card.house in (HouseType.LOTUS, HouseType.CRANE)]
-                return None, all_members, ronin_alive
+                # In a complete tie the rules explicitly award only surviving
+                # players, unlike an ordinary faction win (which awards dead
+                # faction members too).
+                tied_survivors = [p for p in alive
+                                  if p.house_card.house in (HouseType.LOTUS,
+                                                            HouseType.CRANE)]
+                return RoundOutcome(None, tied_survivors, ronin_alive, full_tie=True)
 
-        return wh, room.get_players_by_house(wh), ronin_alive
-
-    @staticmethod
-    def distribute_scores(room: GameRoom, winners: List[Player],
-                          ronin_winners: List[Player]):
-        """每位获胜阵营成员（含阵亡）盲抽1分，存活浪人盲抽1分。"""
-        for p in winners:
-            if room.score_pool:
-                p.score_tokens.append(room.score_pool.pop())
-        for p in ronin_winners:
-            if room.score_pool:
-                p.score_tokens.append(room.score_pool.pop())
+        return RoundOutcome(wh, room.get_players_by_house(wh), ronin_alive)
 
     @staticmethod
-    def check_game_over(room: GameRoom) -> Optional[Player]:
+    def distribute_scores(room: GameRoom, outcome: RoundOutcome) -> Dict[str, int]:
+        """Blind-draw one token per eligible player and return private awards."""
+        recipients = list(outcome.scoring_players)
+        # If the bag ever runs short, random order is fairer than seat-order
+        # preference.  The physical rules do not specify this rare situation.
+        random.shuffle(recipients)
+        awards: Dict[str, int] = {}
+        for p in recipients:
+            if room.score_pool:
+                token = room.score_pool.pop()
+                p.score_tokens.append(token)
+                awards[p.sid] = token
+        return awards
+
+    @staticmethod
+    def check_game_over(room: GameRoom) -> List[Player]:
+        """Return every joint winner, not just the first player in seat order."""
         candidates = [p for p in room.players if p.total_score() >= room.winning_threshold]
         if candidates:
-            candidates.sort(key=lambda p: p.total_score(), reverse=True)
-            return candidates[0]
+            high_score = max(p.total_score() for p in candidates)
+            return [p for p in candidates if p.total_score() == high_score]
         if not room.score_pool:
             # Pool exhausted – highest score wins
-            best = max(room.players, key=lambda p: p.total_score())
-            if best.total_score() > 0:
-                return best
-        return None
+            high_score = max((p.total_score() for p in room.players), default=0)
+            if high_score > 0:
+                return [p for p in room.players if p.total_score() == high_score]
+        return []
 
     # ╔══════════════════════════════════════════════════════════════════════╗
     # ║  HELPERS                                                            ║
     # ╚══════════════════════════════════════════════════════════════════════╝
 
     @staticmethod
-    def _inject_into_queue(room: GameRoom, player: Player, card: Card):
-        """Insert a newly-gained card into the night action queue if still playable."""
-        if card.rank is None:
-            return
-        cur_action = GameEngine.get_current_action(room)
-        cur_priority = cur_action['priority'] if cur_action else (999, 999)
-        new_priority = (card.rank, card.number or 0)
-
-        if new_priority <= cur_priority:
-            return  # Phase already passed
-
-        new_entry = {'priority': new_priority, 'sid': player.sid, 'card': card}
-        idx = room.current_action_index + 1
-        while idx < len(room.night_action_queue):
-            if new_priority < room.night_action_queue[idx]['priority']:
-                break
-            idx += 1
-        room.night_action_queue.insert(idx, new_entry)
+    def _insert_immediate_action(room: GameRoom, player: Player, card: Card):
+        """Resolve a Graverobber card immediately after the current action."""
+        room.night_action_queue.insert(room.current_action_index, {
+            'priority': (-1, -1),
+            'sid': player.sid,
+            'card': card,
+            'immediate': True,
+        })
 
     @staticmethod
     def auto_resolve_prompt(room: GameRoom) -> Optional[Dict[str, Any]]:
@@ -749,6 +1019,8 @@ class GameEngine:
         if pt == PromptType.GRAVEROBBER_PICK:
             ids = room.pending_prompt.data.get('card_ids', [])
             return GameEngine.resolve_graverobber_pick(room, ids[0] if ids else '')
+        if pt == PromptType.GRAVEROBBER_PLAY:
+            return GameEngine.resolve_graverobber_play(room, False)
         if pt == PromptType.TROUBLEMAKER_REVEAL:
             return GameEngine.resolve_troublemaker_reveal(room, False)
         if pt == PromptType.SOUL_MERCHANT_CHOICE:

@@ -725,6 +725,43 @@ input[type="number"]:focus {
     cursor: not-allowed;
 }
 
+.phase-lock-btn {
+    margin-left: 12px;
+    padding: 6px 14px;
+    font-size: .82em;
+}
+
+.selected-for-phase {
+    transform: translateY(-8px);
+}
+
+.token-swap-selectors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.token-swap-selectors select {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    border-radius: 8px;
+    color: var(--text-primary);
+    background: rgba(0, 0, 0, .45);
+}
+
+@media (max-width: 560px) {
+    .token-swap-selectors {
+        grid-template-columns: 1fr;
+    }
+
+    .phase-lock-btn {
+        display: block;
+        margin: 10px auto 0;
+    }
+}
+
 .ninja-card.disabled:hover {
     transform: none;
 }
@@ -915,6 +952,18 @@ input[type="number"]:focus {
 
 .player-position.disconnected .player-avatar {
     filter: grayscale(100%) brightness(0.7);
+}
+
+.player-card.disconnected {
+    opacity: .62;
+    filter: grayscale(.75);
+    border-style: dashed;
+}
+
+.waiting-player-status {
+    color: var(--accent-orange);
+    font-size: .78rem;
+    margin-top: .2rem;
 }
 
 .player-position.lotus .player-avatar {
