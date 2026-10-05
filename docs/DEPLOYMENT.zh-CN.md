@@ -46,6 +46,8 @@
 - 健康检查：`/healthz`
 - `SECRET_KEY`：由 Render 为服务单独生成
 - `PORT`：由托管平台注入，不要写死
+- `GUNICORN_CMD_ARGS`：设为 `--access-logfile -`。Render 的默认值带 `--preload`，会让 Flask 在 eventlet 打补丁之前加载，启动时打印一串 `monkey_patching` 报错。不要启用 `--preload`。
+- `gunicorn.conf.py`：gunicorn 会自动读取，用来让 eventlet worker 干净退出，避免关闭时出现 `greenlet is being finalized`。
 
 可选环境变量：
 

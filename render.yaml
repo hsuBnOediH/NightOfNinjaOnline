@@ -11,3 +11,7 @@ services:
         value: "3.11.0"
       - key: SECRET_KEY
         generateValue: true
+      # Render's default GUNICORN_CMD_ARGS includes --preload, which imports
+      # Flask before the eventlet worker monkey-patches. Keep only access logs.
+      - key: GUNICORN_CMD_ARGS
+        value: "--access-logfile -"
