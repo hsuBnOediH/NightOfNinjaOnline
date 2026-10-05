@@ -47,7 +47,7 @@
 - `SECRET_KEY`：由 Render 为服务单独生成
 - `PORT`：由托管平台注入，不要写死
 - `GUNICORN_CMD_ARGS`：设为 `--access-logfile -`。Render 的默认值带 `--preload`，会让 Flask 在 eventlet 打补丁之前加载，启动时打印一串 `monkey_patching` 报错。不要启用 `--preload`。
-- `gunicorn.conf.py`：gunicorn 会自动读取，用来让 eventlet worker 干净退出，避免关闭时出现 `greenlet is being finalized`。
+- `gunicorn.conf.py`：gunicorn 会自动读取。收到停止信号（每次部署）后先停止监听，再主动关闭所有玩家连接，让 worker 在 1–2 秒内干净退出，浏览器自动重连到新实例；不这样做的话，有玩家在线时 worker 会卡到超时被 SIGKILL，日志里出现 `socket shutdown error` 或 `greenlet is being finalized`。
 
 可选环境变量：
 
